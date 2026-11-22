@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ترمینال و اسکنر زنده کریپتو</title>
+
+  <!-- PWA & iOS Home Screen Meta -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/svg+xml" href="./icon.svg" />
+  <link rel="apple-touch-icon" sizes="180x180" href="./icon.png" />
+  <meta name="theme-color" content="#070b14" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Crypto Terminal" />
+
+  <style>
+    :root {
+      --bg-main: #070b14;
+      --bg-card: #0e1628;
+      --bg-card-2: #121d33;
+      --border: #1e2e4d;
+      --neon-cyan: #00f0ff;
+      --neon-green: #00e676;
+      --neon-red: #ff3d71;
+      --neon-gold: #ffca28;
+      --text-main: #e6eefc;
+      --text-muted: #8a9bb8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Tahoma, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top right, #0f1b33 0%, var(--bg-main) 55%);
+      color: var(--text-main);
+      min-height: 100vh;
+      padding: 14px;
+      line-height: 1.5;
+    }
+
+    .container { max-width: 1440px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+
+    /* Header */
+    .topbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 16px;
+      box-shadow: 0 0 20px rgba(0, 240, 255, 0.06);
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand h1 { font-size: 1.05rem; color: var(--neon-cyan); letter-spacing: 0.2px; }
+    .badge {
+      font-size: 0.72rem;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(0, 240, 255, 0.12);
+      border: 1px solid rgba(0, 240, 255, 0.35);
+      color: var(--neon-cyan);
+    }
+    .badge.ok { background: rgba(0, 230, 118, 0.12); border-color: rgba(0, 230, 118, 0.4); color: var(--neon-green); }
+    .badge.warn { background: rgba(255, 202, 40, 0.12); border-color: rgba(255, 202, 40, 0.4); color: var(--neon-gold); }
+
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    select, button {
+      background: var(--bg-card-2);
+      color: var(--text-main);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      padding: 7px 12px;
+      font-family: inherit;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: 0.2s;
+    }
+    button:hover, select:hover { border-color: var(--neon-cyan); }
+    button.primary {
+      background: linear-gradient(135deg, #00b4d8, #0077b6);
+      border-color: var(--neon-cyan);
+      color: #fff;
+      font-weight: bold;
+    }
+
+    /* Macro & Dominance Strip */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+    }
+
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: transform 0.15s, border-color 0.2s;
+    }
+    .stat-card.clickable { cursor: pointer; }
+    .stat-card.clickable:hover { border-color: var(--neon-cyan); transform: translateY(-2px); }
+    .stat-label { font-size: 0.76rem; color: var(--text-muted); display: flex; justify-content: space-between; }
+    .stat-val { font-size: 1.15rem; font-weight: bold; direction: ltr; text-align: right; }
+    .stat-sub { font-size: 0.74rem; color: var(--text-muted); direction: ltr; text-align: right; }
+    .gold-text { color: var(--neon-gold); }
+    .cyan-text { color: var(--neon-cyan); }
+    .up { color: var(--neon-green); }
+    .down { color: var(--neon-red); }
+
+    /* Main Layout */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 1050px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .panel-header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title { font-size: 0.95rem; font-weight: bold; color: var(--text-main); }
+
+    .symbol-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+    .pill {
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      border-radius: 8px;
+      background: var(--bg-card-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+    .pill.active, .pill:hover {
+      color: var(--neon-cyan);
+      border-color: var(--neon-cyan);
+      background: rgba(0, 240, 255, 0.1);
+    }
+
+    #tv_chart_container {
+      width: 100%;
+      height: 520px;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+
+    @media (max-width: 640px) {
+      #tv_chart_container { height: 390px; }
+    }
+
+    /* Scanner Table */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { padding: 9px 7px; border-bottom: 1px solid rgba(30, 46, 77, 0.7); text-align: center; white-space: nowrap; }
+    th { color: var(--text-muted); font-weight: normal; font-size: 0.74rem; background: rgba(18, 29, 51, 0.6); }
+    tbody tr { cursor: pointer; transition: background 0.15s; }
+    tbody tr:hover { background: rgba(0, 240, 255, 0.06); }
+
+    .ltr { direction: ltr; display: inline-block; }
+
+    .sig {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 0.72rem;
+    }
+    .sig.LONG { background: rgba(0, 230, 118, 0.16); color: var(--neon-green); border: 1px solid rgba(0, 230, 118, 0.45); }
+    .sig.SHORT { background: rgba(255, 61, 113, 0.16); color: var(--neon-red); border: 1px solid rgba(255, 61, 113, 0.45); }
+    .sig.NEUTRAL { background: rgba(138, 155, 184, 0.14); color: var(--text-muted); border: 1px solid rgba(138, 155, 184, 0.3); }
+
+    .levels { font-size: 0.72rem; line-height: 1.45; direction: ltr; text-align: left; }
+    .tp { color: var(--neon-green); }
+    .sl { color: var(--neon-red); }
+
+    .footer-note {
+      font-size: 0.74rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 4px 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="brand">
+        <img src="./icon.svg" alt="Logo" width="30" height="30" />
+        <h1>ترمینال زنده کریپتو و اسکنر سیگنال</h1>
+        <span id="workerStatus" class="badge warn">ورکر: در حال اتصال...</span>
+      </div>
+      <div class="controls">
+        <select id="timeframeSelect" title="تایم‌فریم اسکنر">
+          <option value="15m">تایم‌فریم 15m</option>
+          <option value="1h" selected>تایم‌فریم 1H</option>
+          <option value="4h">تایم‌فریم 4H</option>
+          <option value="1d">تایم‌فریم 1D</option>
+        </select>
+        <button id="refreshBtn" class="primary">بروزرسانی زنده</button>
+      </div>
+    </header>
+
+    <!-- Iran Market + Dominance Cards -->
+    <section class="cards-grid">
+      <div class="stat-card">
+        <div class="stat-label"><span>دلار / تتر ایران</span><span>Worker</span></div>
+        <div id="valUsd" class="stat-val cyan-text">--</div>
+        <div id="subUsd" class="stat-sub">تومان</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label"><span>طلای ۱۸ عیار</span><span>Worker</span></div>
+        <div id="valGold18" class="stat-val gold-text">--</div>
+        <div id="subGold18" class="stat-sub">هر گرم (تومان)</div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-label"><span>سکه امامی</span><span>Worker</span></div>
+        <div id="valCoin" class="stat-val gold-text">--</div>
+        <div id="subCoin" class="stat-sub">تومان</div>
+      </div>
+
+      <div class="stat-card clickable" onclick="loadChart('CRYPTOCAP:BTC.D')">
+        <div class="stat-label"><span>دامیننس بیت‌کوین</span><span>BTC.D</span></div>
+        <div id="valBtcD" class="stat-val">--</div>
+        <div class="stat-sub">کلیک برای نمایش چارت</div>
+      </div>
+
+      <div class="stat-card clickable" onclick="loadChart('CRYPTOCAP:USDT.D')">
+        <div class="stat-label"><span>دامیننس تتر</span><span>USDT.D</span></div>
+        <div id="valUsdtD" class="stat-val">--</div>
+        <div class="stat-sub">کلیک برای نمایش چارت</div>
+      </div>
+    </section>
+
+    <!-- Main Workspace -->
+    <main class="main-grid">
+      <!-- TradingView Chart Panel -->
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">نمودار زنده TradingView</div>
+          <div class="symbol-pills" id="quickPills">
+            <span class="pill active" data-sym="BINANCE:BTCUSDT">BTC</span>
+            <span class="pill" data-sym="BINANCE:ETHUSDT">ETH</span>
+            <span class="pill" data-sym="BINANCE:SOLUSDT">SOL</span>
+            <span class="pill" data-sym="BINANCE:SUIUSDT">SUI</span>
+            <span class="pill" data-sym="BINANCE:ADAUSDT">ADA</span>
+            <span class="pill" data-sym="BINANCE:NEARUSDT">NEAR</span>
+            <span class="pill" data-sym="CRYPTOCAP:BTC.D">BTC.D</span>
+            <span class="pill" data-sym="CRYPTOCAP:USDT.D">USDT.D</span>
+          </div>
+        </div>
+        <div id="tv_chart_container"></div>
+      </section>
+
+      <!-- Smart Scanner Panel -->
+      <section class="panel">
+        <div class="panel-header">
+          <div class="panel-title">اسکنر هوشمند (RSI + MACD + MA90 + ATR)</div>
+          <span id="scanTime" class="badge">آخرین اسکن: --</span>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>ارز</th>
+                <th>قیمت ($)</th>
+                <th>RSI</th>
+                <th>MACD</th>
+                <th>MA90</th>
+                <th>سیگنال</th>
+                <th>حد سود / ضرر</th>
+              </tr>
+            </thead>
+            <tbody id="scannerBody">
+              <tr><td colspan="7" style="color: var(--text-muted); padding: 24px;">در حال دریافت کندل‌ها و محاسبه اندیکاتورها...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      <span>برای نمایش نمودار هر ارز، روی ردیف آن در اسکنر کلیک کنید.</span>
+      <span id="apiSource">منبع کندل: Binance Vision API</span>
+    </footer>
+  </div>
+
+  <!-- TradingView Embed Script -->
+  <script src="https://s3.tradingview.com/tv.js"></script>
+  <script>
+    // =========================================================================
+    // تنظیمات اختصاصی کاربر — آدرس Cloudflare Worker خود را اینجا قرار دهید
+    // =========================================================================
+    const WORKER_URL = 'https://golbit-api.golijoon68.workers.dev/';
+
+    const WATCHLIST = [
+      'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'SUIUSDT', 'ADAUSDT',
+      'NEARUSDT', 'BNBUSDT', 'XRPUSDT', 'DOGEUSDT', 'TONUSDT'
+    ];
+
+    let currentSymbol = 'BINANCE:BTCUSDT';
+    let currentInterval = '60';
+
+    const TF_MAP_TV = { '15m': '15', '1h': '60', '4h': '240', '1d': 'D' };
+
+    // -------------------- TradingView Chart --------------------
+    function loadChart(symbol) {
+      currentSymbol = symbol;
+      document.querySelectorAll('.pill').forEach(p => {
+        p.classList.toggle('active', p.dataset.sym === symbol);
+      });
+
+      const container = document.getElementById('tv_chart_container');
+      container.innerHTML = '';
+
+      if (typeof TradingView === 'undefined') {
+        container.innerHTML = '<div style="padding:20px;color:#ffca28">خطا در بارگذاری اسکریپت TradingView (اتصال اینترنت یا فیلترشکن را بررسی کنید).</div>';
+        return;
+      }
+
+      new TradingView.widget({
+        autosize: true,
+        symbol: symbol,
+        interval: currentInterval,
+        timezone: 'Asia/Tehran',
+        theme: 'dark',
+        style: '1',
+        locale: 'en',
+        toolbar_bg: '#0e1628',
+        enable_publishing: false,
+        hide_side_toolbar: false,
+        allow_symbol_change: true,
+        studies: [
+          'MASimple@tv-basicstudies',
+          'RSI@tv-basicstudies',
+          'MACD@tv-basicstudies'
+        ],
+        container_id: 'tv_chart_container'
+      });
+    }
+
+    // -------------------- Math & Technical Indicators --------------------
+    function calcSMA(values, period) {
+      if (values.length < period) return null;
+      const slice = values.slice(-period);
+      return slice.reduce((a, b) => a + b, 0) / period;
+    }
+
+    function calcEMAArray(values, period) {
+      const k = 2 / (period + 1);
+      const result = [];
+      let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      result[period - 1] = ema;
+      for (let i = period; i < values.length; i++) {
+        ema = values[i] * k + ema * (1 - k);
+        result[i] = ema;
+      }
+      return result;
+    }
+
+    function calcRSI(closes, period = 14) {
+      if (closes.length <= period) return 50;
+      let gains = 0, losses = 0;
+      for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gains += diff;
+        else losses -= diff;
+      }
+      let avgGain = gains / period;
+      let avgLoss = losses / period;
+
+      for (let i = period + 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+      }
+      if (avgLoss === 0) return 100;
+      const rs = avgGain / avgLoss;
+      return 100 - (100 / (1 + rs));
+    }
+
+    function calcMACD(closes) {
+      const ema12 = calcEMAArray(closes, 12);
+      const ema26 = calcEMAArray(closes, 26);
+      const macdLine = [];
+      for (let i = 25; i < closes.length; i++) {
+        macdLine.push(ema12[i] - ema26[i]);
+      }
+      const signalLine = calcEMAArray(macdLine, 9);
+      const lastIdx = macdLine.length - 1;
+      const prevIdx = lastIdx - 1;
+      const hist = macdLine[lastIdx] - signalLine[lastIdx];
+      const prevHist = macdLine[prevIdx] - signalLine[prevIdx];
+      return { macd: macdLine[lastIdx], signal: signalLine[lastIdx], hist, prevHist };
+    }
+
+    function calcATR(highs, lows, closes, period = 14) {
+      const trs = [];
+      for (let i = 1; i < closes.length; i++) {
+        const tr = Math.max(
+          highs[i] - lows[i],
+          Math.abs(highs[i] - closes[i - 1]),
+          Math.abs(lows[i] - closes[i - 1])
+        );
+        trs.push(tr);
+      }
+      const recent = trs.slice(-period);
+      return recent.reduce((a, b) => a + b, 0) / recent.length;
+    }
+
+    function formatPrice(p) {
+      if (p >= 1000) return p.toLocaleString('en-US', { maximumFractionDigits: 1 });
+      if (p >= 1) return p.toFixed(3);
+      return p.toFixed(5);
+    }
+
+    function formatToman(val) {
+      const num = Number(String(val).replace(/[^0-9.]/g, ''));
+      if (!num || isNaN(num)) return String(val);
+      return Math.round(num).toLocaleString('fa-IR');
+    }
+
+    // -------------------- Scanner Engine --------------------
+    async function fetchKlines(symbol, interval) {
+      const urls = [
+        `https://data-api.binance.vision/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=140`,
+        `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=140`
+      ];
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) return await res.json();
+        } catch (e) {}
+      }
+      throw new Error('Kline fetch failed');
+    }
+
+    function analyzeCoin(symbol, klines) {
+      const highs = klines.map(k => parseFloat(k[2]));
+      const lows = klines.map(k => parseFloat(k[3]));
+      const closes = klines.map(k => parseFloat(k[4]));
+      const volumes = klines.map(k => parseFloat(k[5]));
+
+      const price = closes[closes.length - 1];
+      const prevClose = closes[closes.length - 2];
+      const ma90 = calcSMA(closes, 90);
+      const ema20Arr = calcEMAArray(closes, 20);
+      const ema20 = ema20Arr[ema20Arr.length - 1];
+      const rsi = calcRSI(closes, 14);
+      const macd = calcMACD(closes);
+      const atr = calcATR(highs, lows, closes, 14);
+      const avgVol = calcSMA(volumes.slice(0, -1), 20) || 1;
+      const volRatio = volumes[volumes.length - 1] / avgVol;
+
+      let score = 0;
+      if (ma90) score += price > ma90 ? 25 : -25;
+      if (ema20) score += price > ema20 ? 15 : -15;
+
+      if (macd.hist > 0 && macd.hist > macd.prevHist) score += 25;
+      else if (macd.hist < 0 && macd.hist < macd.prevHist) score -= 25;
+      else score += macd.hist > 0 ? 10 : -10;
+
+      if (rsi > 50 && rsi < 70) score += 20;
+      else if (rsi <= 32) score += 15;
+      else if (rsi < 50 && rsi > 30) score -= 20;
+      else if (rsi >= 72) score -= 15;
+
+      if (volRatio > 1.2) score += (price >= prevClose ? 15 : -15);
+
+      let signal = 'NEUTRAL';
+      let sl = null, tp1 = null, tp2 = null;
+
+      if (score >= 40) {
+        signal = 'LONG';
+        sl = price - 1.5 * atr;
+        tp1 = price + 2.0 * atr;
+        tp2 = price + 3.5 * atr;
+      } else if (score <= -40) {
+        signal = 'SHORT';
+        sl = price + 1.5 * atr;
+        tp1 = price - 2.0 * atr;
+        tp2 = price - 3.5 * atr;
+      }
+
+      return { symbol, price, rsi, macd, ma90, signal, score, sl, tp1, tp2 };
+    }
+
+    async function runScanner() {
+      const tf = document.getElementById('timeframeSelect').value;
+      const tbody = document.getElementById('scannerBody');
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--neon-cyan);padding:20px;">در حال اسکن بازار...</td></tr>';
+
+      const results = await Promise.allSettled(
+        WATCHLIST.map(async sym => {
+          const klines = await fetchKlines(sym, tf);
+          return analyzeCoin(sym, klines);
+        })
+      );
+
+      const rows = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value)
+        .sort((a, b) => Math.abs(b.score) - Math.abs(a.score));
+
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="color:var(--neon-red);padding:20px;">خطا در دریافت داده‌های کندل. اتصال اینترنت را بررسی کنید.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = rows.map(item => {
+        const cleanSym = item.symbol.replace('USDT', '');
+        const aboveMa90 = item.ma90 && item.price > item.ma90;
+        const macdUp = item.macd.hist > 0;
+        const levelsHtml = item.signal === 'NEUTRAL'
+          ? '<span style="color:var(--text-muted)">بدون موقعیت</span>'
+          : `<div class="levels">
+               <div class="tp">TP1: ${formatPrice(item.tp1)}</div>
+               <div class="tp">TP2: ${formatPrice(item.tp2)}</div>
+               <div class="sl">SL: ${formatPrice(item.sl)}</div>
+             </div>`;
+
+        return `
+          <tr onclick="loadChart('BINANCE:${item.symbol}')">
+            <td><strong>${cleanSym}</strong></td>
+            <td><span class="ltr">${formatPrice(item.price)}</span></td>
+            <td class="${item.rsi > 70 ? 'down' : item.rsi < 30 ? 'up' : ''}">${item.rsi.toFixed(1)}</td>
+            <td class="${macdUp ? 'up' : 'down'}">${macdUp ? 'صعودی ▲' : 'نزولی ▼'}</td>
+            <td class="${aboveMa90 ? 'up' : 'down'}">${aboveMa90 ? 'بالا' : 'پایین'}</td>
+            <td><span class="sig ${item.signal}">${item.signal} (${item.score})</span></td>
+            <td>${levelsHtml}</td>
+          </tr>
+        `;
+      }).join('');
+
+      document.getElementById('scanTime').textContent =
+        'آخرین اسکن: ' + new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }
+
+    // -------------------- Dominance (CoinGecko Global) --------------------
+    async function fetchDominance() {
+      try {
+        const res = await fetch('https://api.coingecko.com/api/v3/global');
+        if (!res.ok) return;
+        const json = await res.json();
+        const pct = json?.data?.market_cap_percentage;
+        if (pct?.btc) document.getElementById('valBtcD').textContent = pct.btc.toFixed(2) + '%';
+        if (pct?.usdt) document.getElementById('valUsdtD').textContent = pct.usdt.toFixed(2) + '%';
+      } catch (e) {}
+    }
+
+    // -------------------- Iran Gold & Dollar from Cloudflare Worker --------------------
+    function pickField(obj, candidates) {
+      if (!obj || typeof obj !== 'object') return null;
+      for (const key of candidates) {
+        if (obj[key] !== undefined && obj[key] !== null) {
+          return typeof obj[key] === 'object' ? (obj[key].value ?? obj[key].price ?? obj[key].p ?? null) : obj[key];
+        }
+      }
+      // Search one level deeper (e.g. data.usd or prices.gold18)
+      for (const v of Object.values(obj)) {
+        if (v && typeof v === 'object') {
+          for (const key of candidates) {
+            if (v[key] !== undefined && v[key] !== null) {
+              return typeof v[key] === 'object' ? (v[key].value ?? v[key].price ?? v[key].p ?? null) : v[key];
+            }
+          }
+        }
+      }
+      return null;
+    }
+
+    async function fetchWorkerPrices() {
+      const badge = document.getElementById('workerStatus');
+      if (!WORKER_URL || WORKER_URL.includes('YOUR-WORKER-NAME')) {
+        badge.textContent = 'ورکر: آدرس تنظیم نشده';
+        badge.className = 'badge warn';
+        return;
+      }
+
+      try {
+        const res = await fetch(WORKER_URL);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        const usd = pickField(data, ['usdt', 'usd', 'dollar', 'tether', 'price_dollar_rl']);
+        const gold18 = pickField(data, ['gold18', 'geram18', 'gold_18', 'gold', 'tala18']);
+        const coin = pickField(data, ['sekkeh', 'emami', 'sekee', 'coin', 'seke']);
+
+        if (usd) document.getElementById('valUsd').textContent = formatToman(usd);
+        if (gold18) document.getElementById('valGold18').textContent = formatToman(gold18);
+        if (coin) document.getElementById('valCoin').textContent = formatToman(coin);
+
+        badge.textContent = 'ورکر: متصل';
+        badge.className = 'badge ok';
+      } catch (err) {
+        badge.textContent = 'ورکر: خطا در اتصال';
+        badge.className = 'badge warn';
+      }
+    }
+
+    // -------------------- Events & Init --------------------
+    document.getElementById('quickPills').addEventListener('click', e => {
+      const pill = e.target.closest('.pill');
+      if (pill) loadChart(pill.dataset.sym);
+    });
+
+    document.getElementById('timeframeSelect').addEventListener('change', e => {
+      currentInterval = TF_MAP_TV[e.target.value] || '60';
+      loadChart(currentSymbol);
+      runScanner();
+    });
+
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      runScanner();
+      fetchWorkerPrices();
+      fetchDominance();
+    });
+
+    // Initial Load + Auto Refresh every 60s
+    loadChart(currentSymbol);
+    runScanner();
+    fetchWorkerPrices();
+    fetchDominance();
+    setInterval(() => {
+      runScanner();
+      fetchWorkerPrices();
+      fetchDominance();
+    }, 60000);
+  </script>
+</body>
+</html>

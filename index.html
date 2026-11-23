@@ -2086,7 +2086,7 @@ function setSub(k,v){
    '#gl-chip{position:fixed;bottom:10px;left:10px;z-index:9000;font-size:11px;padding:5px 11px;border-radius:999px;background:var(--acbg,#17306a);color:#fff;border:1px solid var(--accent,#6c9bff);opacity:.95;cursor:pointer}';
   document.head.appendChild(st);
   const chip=(t,fn)=>{let c=$('gl-chip');if(!c){c=document.createElement('div');c.id='gl-chip';document.body.appendChild(c)}c.textContent=t;c.onclick=fn||null};
-  const PL=[{id:'y1',t:'سالانه',p:89.99,per:'ماهی حدود ۷٫۵ تتر',tag:'به‌صرفه‌ترین · ۲۵٪ ارزان‌تر'},{id:'m3',t:'سه‌ماهه',p:26.99,per:'ماهی حدود ۹ تتر',tag:'۱۰٪ ارزان‌تر'},{id:'m1',t:'ماهانه',p:9.99,per:'',tag:''}];
+  const PL=[{id:'y1',t:'سالانه',p:89.99,per:'ماهی ۷٫۵ تتر',tag:'به‌صرفه‌ترین · ۲۵٪ ارزان‌تر'},{id:'m3',t:'سه‌ماهه',p:26.99,per:'ماهی ۹ تتر',tag:'۱۰٪ ارزان‌تر'},{id:'m1',t:'ماهانه',p:9.99,per:'',tag:''}];
   /* ---- پنجره‌ی خرید (قابل‌بستن) ---- */
   function closeModal(){const m=$('gl-modal');if(m)m.remove();L('gl_last',String(Date.now()))}
   function modal(){
@@ -2272,6 +2272,7 @@ function setSub(k,v){
   }
 })();
 </script>
+  
 </body>
 
 </html>

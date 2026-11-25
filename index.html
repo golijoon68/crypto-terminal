@@ -1355,7 +1355,7 @@ function saEval(sym){
 function saTick(){
   SCALP_COINS.forEach(sym=>{
     const c=saCoin(sym),R=saEval(sym);c.res=R;
-    if(R&&R.ok&&R.setup){fireAlert('scalp',sym,R.dir,R.score,R.setup);logSig(sym,R.dir,R.setup.entry,R.setup.tp1,R.setup.sl,'scalp',20*60000,R.score,R.ctx)};logSig(sym,R.dir,R.setup.entry,R.setup.tp1,R.setup.sl,'scalp',20*60000,R.score,R.ctx)}
+    if(scalpStable(sym,R)&&R.setup){fireAlert('scalp',sym,R.dir,R.score,R.setup);logSig(sym,R.dir,R.setup.entry,R.setup.tp1,R.setup.sl,'scalp',20*60000,R.score,R.ctx)}
   });
   SA.ts=Date.now();renderScalp();
 }

@@ -1063,9 +1063,9 @@ function evalCoin(sym,D,btcBias){
   const ap=A/price*100;
   if(ap<.12)rej('نوسان خیلی کم است');
   if(ap>2.5)rej('نوسان بیش‌ازحد؛ ریسک لغزش بالا');
-  if(d>0?r>72:r<28)rej(d>0?'اشباع خرید؛ تعقیب قیمت':'اشباع فروش؛ تعقیب قیمت');
+  if(d>0?r>65:r<35)rej(d>0?'اشباع خرید (نزدیک سقف)؛ ورود دیر':'اشباع فروش (نزدیک کف)؛ ورود دیر');
   const c1h=D.h1.a.map(x=>x.c),n1=c1h.length-1,r1h=rsi(c1h);
-  if(Number.isFinite(r1h)&&(d>0?r1h>75:r1h<25))rej(d>0?'اشباع خرید در ۱ساعته؛ ورود دیر':'اشباع فروش در ۱ساعته؛ ورود دیر');
+  if(Number.isFinite(r1h)&&(d>0?r1h>68:r1h<32))rej(d>0?'اشباع خرید در ۱ساعته؛ ورود دیر':'اشباع فروش در ۱ساعته؛ ورود دیر');
   const den1=c1h.slice(n1-19).reduce((t,x,i,arr)=>i?t+Math.abs(x-arr[i-1]):t,0),er1=den1>0?Math.abs(c1h[n1]-c1h[n1-19])/den1:0;
   if(er1<.2)rej('بازار ۱ساعته رنج است (ER='+fa(er1,2)+')');
   if((price-c[n])*d>.8*A)rej('قیمت در جهت معامله پریده؛ منتظر پولبک یا کندل بعدی');
@@ -1074,7 +1074,7 @@ function evalCoin(sym,D,btcBias){
   if(trendOk)o.reasons.push('روند '+(d>0?'صعودی':'نزولی')+' در ۱ساعته و ۴ساعته');
   const dist=(price-e20[n])*d/A;
   if(dist<=.3&&dist>=-1.2){ps+=15;o.reasons.push('قیمت نزدیک EMA20 (پولبک سالم)')}
-  else if(dist>1.5){ps-=10;o.warns.push('قیمت از EMA20 دور شده؛ احتمال تعقیب')}
+  else if(dist>1.5){ps-=10;rej('قیمت از EMA20 خیلی دور شده؛ منتظر پولبک');o.warns.push('قیمت از EMA20 دور شده؛ احتمال تعقیب')}
   const st1=swingStruct(D.h1.a.slice(-150),3),st15=swingStruct(a.slice(-120),3);
   if(st1.dir*d>0){ps+=10;o.reasons.push('ساختار ۱ساعته: '+(d>0?'سقف و کف بالاتر (HH/HL)':'سقف و کف پایین‌تر (LH/LL)')+(st15.bos*d>0?' + شکست ساختار ۱۵دقیقه':''))}
   else if(st1.dir*d<0){ps-=10;o.warns.push('ساختار ۱ساعته خلاف جهت است')}
@@ -1540,7 +1540,7 @@ async function loadSrvJ(){
   const px=PX();if(!px){SRVOK=false;return}
   try{const d=await J(new URL('journal',px).href);if(!d||!Array.isArray(d.entries))throw new Error('bad');
     SRVJ=d.entries.filter(e=>e&&e.sym&&e.entry>0&&e.tp>0&&e.sl>0);SRVOK=true;
-    SRVJ.forEach(e=>{if(!SEEN.has(e.id)){SEEN.add(e.id);if(seenInit&&e.status==='open'&&e.score>=SC.min)fireAlert('scan',e.sym,e.side,e.score,{entry:e.entry,sl:e.sl,tp1:e.tp})}});seenInit=true;renderJournal()}
+   SRVJ.forEach(e=>{if(!SEEN.has(e.id)){SEEN.add(e.id);if(seenInit&&e.status==='open'&&e.score>=SC.min)fireAlert('scan',e.sym,e.side,e.score,{entry:e.entry,sl:e.sl,tp1:e.tp,rsi:e.rsi,rsi1h:e.rsi1h})}});seenInit=true;renderJournal()}
   catch(e){SRVOK=false}
 }
 function notifyTG(){/* غیرفعال: تلگرام فقط اسکنر، طلایی و خطا را از سرور می‌گیرد */}
@@ -1768,6 +1768,7 @@ function systemNotify(title,body){
   try{if(typeof Notification==='undefined'||Notification.permission!=='granted')return;
     new Notification(title,{body,tag:'sig-'+Date.now(),requireInteraction:true,dir:'rtl',lang:'fa'})}catch(e){}
 }
+const rsiZone=v=>{if(!Number.isFinite(v))return'';const n=Math.round(v);return n<=30?'🔴 کف ('+fa(n,0)+')':n<=38?'🟠 نزدیک کف ('+fa(n,0)+')':n<62?'🟢 میانه ('+fa(n,0)+')':n<70?'🟠 نزدیک سقف ('+fa(n,0)+')':'🔴 سقف ('+fa(n,0)+')'};
 function fireAlert(kind,sym,dir,score,s){
   try{
     if(riskState().locked)return;
@@ -1780,9 +1781,9 @@ function fireAlert(kind,sym,dir,score,s){
       L.push('SL: '+usd(s.sl)+' ('+pcT(s.sl,s.entry)+')');
       L.push('TP1: '+usd(s.tp1)+' ('+pcT(s.tp1,s.entry)+')'+(s.tp2?' | TP2: '+usd(s.tp2):''));
       if(s.rr2!=null)L.push('RR خالص: '+fa(s.rr2,2));
-      if(Number.isFinite(s.rsi))L.push('RSI '+fa(s.rsi,0)+' | خروج: '+(dir>0?'اگر RSI به '+(kind==='scalp'?75:78)+' یا بالاتر رسید':'اگر RSI به '+(kind==='scalp'?25:22)+' یا پایین‌تر رسید')+' و قیمت نزدیک هدف بود، سود را حفظ کن');
     }
     L.push(kind==='scalp'?'⏳ اعتبار: ۲۰ دقیقه':'⏳ اعتبار: تا TP/SL');
+    if(s&&Number.isFinite(s.rsi))L.push('📍 RSI ('+(kind==='scalp'?'5m':'15m')+'): '+rsiZone(s.rsi)+(Number.isFinite(s.rsi1h)?' | 1h: '+rsiZone(s.rsi1h):''));
     alertSig((kind==='scalp'?'⚡ ':'🎯 ')+nm(sym)+' '+(dir>0?'🟢 LONG':'🔴 SHORT'),L.join('\n'),kind,dir>0?'long':'short');
   }catch(e){}
 }

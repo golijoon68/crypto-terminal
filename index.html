@@ -1226,99 +1226,117 @@ const clamp=x=>Math.max(-1,Math.min(1,Number.isFinite(x)?x:0));
 const SCALP_MIN=50;
 const SCTX={sym:null};
 const CFGX={cost:(parseFloat(ls.get('scalpCost'))||.12)};
-function scalpEvalS(sym, K1, K5, H1, dp, fr, costPct, realFlow) {
-  const R = { sym, gate: [], comp: [], score: 0, dir: 0, gateOk: false, ok: false, setup: null, why: null };
-  const bids = (dp.bids || []).map((x) => [+x[0], +x[1]]), asks = (dp.asks || []).map((x) => [+x[0], +x[1]]);
-  if (!bids.length || !asks.length) { R.why = 'دفتر سفارش خالی'; return R; }
-  const bid = bids[0][0], ask = asks[0][0], mid = (bid + ask) / 2;
-  const a1 = K1.slice(0, -1), a5 = K5.slice(0, -1), c1 = a1.map((x) => x.c), c5 = a5.map((x) => x.c);
-  const A1 = atr(a1), A5 = atr(a5);
-  if (![A1, A5].every(Number.isFinite) || A5 <= 0 || A1 <= 0) { R.why = 'اندیکاتور نامعتبر'; return R; }
-  const gate = (name, ok, val) => R.gate.push({ name, ok, val });
-  const spr = ((ask - bid) / mid) * 1e4;
-  gate('اسپرد', spr <= (/^(BTC|ETH)/.test(sym) ? 3 : 8), fa(spr, 2) + ' bps');
-  const slip = (side) => { const bk = side > 0 ? asks : bids; let need = 1e4, cost = 0, qty = 0; for (const [p, q] of bk) { const v = p * q, t = Math.min(need, v); cost += t; qty += t / p; need -= t; if (need <= 0) break; } return need > 0 ? null : Math.abs(cost / qty / mid - 1) * 1e4; };
-  const sb = slip(1), ss = slip(-1), sm = sb == null || ss == null ? null : Math.max(sb, ss);
-  gate('لغزش سفارش ۱۰هزار دلاری', sm != null && sm <= 5, sm == null ? 'عمق ناکافی' : fa(sm, 2) + ' bps');
-  const ap5 = (A5 / mid) * 100; gate('نوسان ۵دقیقه‌ای', ap5 >= 0.06 && ap5 <= 0.85, fa(ap5, 2) + '٪');
-  const l1 = a1.at(-1), l5Last = a5.at(-1), spike = Math.max((l1.h - l1.l) / A1, (l5Last.h - l5Last.l) / A5);
-  gate('بدون جهش ناگهانی', spike < 2.4, fa(spike, 1) + '× ATR');
+const SC_HOLD={};
+function scalpStable(sym,R){
+  if(!R||!R.ok){delete SC_HOLD[sym];return false}
+  const prev=SC_HOLD[sym],n=prev&&prev.dir===R.dir?prev.n+1:1;
+  SC_HOLD[sym]={dir:R.dir,n};
+  return n>=3; // پایداری ۳ تیک پیاپی (۶ ثانیه) برای حذف سیگنال لحظه‌ای و اسپوف
+}
+function scalpEval(){
+  const R={gate:[],comp:[],score:0,dir:0,gateOk:false,ok:false,setup:null,why:null},now=Date.now();
+  const k1=FL.k1,k5=FL.k5;
+  if(!k1||!k5||!(FL.bid>0&&FL.ask>0)||!FL.bids.length){R.why='در انتظار داده‌ی زنده (معاملات، دفتر سفارش و کندل‌ها)';return R}
+  const mid=(FL.bid+FL.ask)/2,a1=k1.a,a5=k5.a,c1=a1.map(x=>x.c),c5=a5.map(x=>x.c);
+  const A1=atr(a1),A5=atr(a5);
+  if(![A1,A5].every(Number.isFinite)||A5<=0||A1<=0){R.why='اندیکاتور نامعتبر';return R}
+  const gate=(name,ok,val)=>R.gate.push({name,ok,val});
+  const spr=(FL.ask-FL.bid)/mid*1e4;
+  gate('اسپرد',spr<=(/^(BTC|ETH)/.test(SCTX.sym||symbol)?3:8),fa(spr,2)+' bps');
+  const slip=side=>{const bk=side>0?FL.asks:FL.bids;let need=1e4,cost=0,qty=0;for(const [p,q] of bk){const v=p*q,t=Math.min(need,v);cost+=t;qty+=t/p;need-=t;if(need<=0)break}return need>0?null:Math.abs(cost/qty/mid-1)*1e4};
+  const sb=slip(1),ss=slip(-1),sm=sb==null||ss==null?null:Math.max(sb,ss);
+  gate('لغزش سفارش ۱۰هزار دلاری',sm!=null&&sm<=5,sm==null?'عمق ۲۰ سطح کافی نیست':fa(sm,2)+' bps');
+  const ap5=A5/mid*100;gate('نوسان ۵دقیقه‌ای',ap5>=.06&&ap5<=.85,fa(ap5,2)+'٪');
+  const l1=a1[a1.length-1],l5Last=a5[a5.length-1];
+  const spike=Math.max((l1.h-l1.l)/A1,(l5Last.h-l5Last.l)/A5);
+  gate('بدون جهش ناگهانی',spike<2.4,fa(spike,1)+' برابر ATR');
+  const age=Math.max(now-FL.bt,now-FL.dt);gate('تازگی داده‌ی زنده',age<5000,fa(age/1000,1)+' ثانیه');
+  {const rk=riskState();gate('قفل ریسک',!rk.locked,rk.locked?rk.reason:'آزاد')}
 
-  const add = (name, w, v, fam) => R.comp.push({ name, w, v: clamp(v), fam: fam || 'price' });
-  const delta = (arr) => { const v = arr.reduce((t, x) => t + x.v, 0); return v > 0 ? arr.reduce((t, x) => t + (2 * x.tb - x.v), 0) / v : 0; };
-  if (realFlow && realFlow.n >= 5 && realFlow.volUsd >= 3000) {
-    add('حجم مهاجم زنده', 16, realFlow.delta / 0.35, 'flow');
-    add('CVD ۵دقیقه', 12, delta(a1.slice(-5)) / 0.30, 'flow');
-  } else {
-    add('حجم مهاجم (تخمینی)', 14, (delta(a1.slice(-2)) / 0.45) * 0.75, 'flow');
-    add('CVD ۵دقیقه', 10, (delta(a1.slice(-5)) / 0.35) * 0.75, 'flow');
-  }
-  const B = bids.slice(0, 10).reduce((t, x) => t + x[0] * x[1], 0), A = asks.slice(0, 10).reduce((t, x) => t + x[0] * x[1], 0);
-  add('عدم‌توازن دفتر', 12, (B + A > 0 ? (B - A) / (B + A) : 0) / 0.3, 'book');
-  const hasExtremeFr = Number.isFinite(fr) && (fr > 0.04 || fr < -0.015);
-  add('فاندینگ', 8, hasExtremeFr ? (fr > 0.04 ? -0.8 : 0.8) : 0, 'deriv');
+  const add=(name,w,v,txt,fam)=>R.comp.push({name,w,v:clamp(v),txt,fam:fam||'price'});
+  // ۱) جریان سفارش واقعی (۶۰ ثانیه + CVD ۵ دقیقه)
+  const T=FL.trades,t60=T.filter(x=>x.t>=now-6e4),enough=T.length>=30;
+  const b60=t60.filter(x=>x.s>0).reduce((t,x)=>t+x.v,0),s60=t60.filter(x=>x.s<0).reduce((t,x)=>t+x.v,0);
+  const ag=b60+s60>0?(b60-s60)/(b60+s60):0;
+  add('حجم مهاجم ۶۰ثانیه',14,enough?ag/.35:0,enough?pct(ag*100):'در حال جمع‌آوری','flow');
+  const tv=T.reduce((t,x)=>t+x.v,0),cvn=tv>0?T.reduce((t,x)=>t+x.s*x.v,0)/tv:0;
+  add('CVD ۵دقیقه',12,enough?cvn/.25:0,enough?pct(cvn*100):'در حال جمع‌آوری','flow');
 
-  // ساختار ۵ دقیقه‌ای با منطق ضدتعقیب (پولبک سالم روی VWAP و EMA21 ۵m)
-  const e9_5 = ema(c5, 9).at(-1), e21_5 = ema(c5, 21).at(-1);
-  const w = a1.slice(-60), vv = w.reduce((t, x) => t + x.v, 0);
-  const vwap = vv > 0 ? w.reduce((t, x) => t + ((x.h + x.l + x.c) / 3) * x.v, 0) / vv : mid;
-  const vDist = (mid - vwap) / A5;
-  const vScore = vDist > 0 ? (vDist <= 1.1 ? Math.min(1, vDist / 0.45) : Math.max(0, 1 - (vDist - 1.1) / 0.7)) : (vDist >= -1.1 ? Math.max(-1, vDist / 0.45) : Math.min(0, -1 - (vDist + 1.1) / 0.7));
-  add('VWAP سالم', 10, vScore);
-  add('روند ۵m EMA9/21', 12, (e9_5 - e21_5) / (0.6 * A5));
-  const Hm = macdHist(c5), h0 = Hm.at(-1), h1 = Hm.at(-2);
-  add('MACD ۵m', 8, (h0 > 0 ? 0.5 : -0.5) + (h0 > h1 ? 0.5 : -0.5));
-  const h1Trend = trendOfC(H1.slice(0, -1).map((x) => x.c));
-  add('روند ۱h', 8, h1Trend);
-  const ss5 = swingStruct(a5.slice(-80), 2);
-  add('ساختار ۵m', 12, ss5.dir * 0.7 + ss5.bos * 0.4);
+  // ۲) دفتر سفارش (فقط عدم‌توازن واقعی؛ دیوار اسپوف حذف شد)
+  const B=FL.bids.slice(0,10).reduce((t,x)=>t+x[0]*x[1],0),A=FL.asks.slice(0,10).reduce((t,x)=>t+x[0]*x[1],0),imb=B+A>0?(B-A)/(B+A):0;
+  add('عدم‌توازن دفتر سفارش',10,imb/.3,pct(imb*100),'book');
 
-  const FW = { flow: 26, price: 50, book: 16, deriv: 8 }, fv = {};
-  let wAct = 0, wSum = 0;
-  Object.keys(FW).forEach((f) => {
-    const cs = R.comp.filter((x) => x.fam === f), sw = cs.reduce((t, x) => t + x.w, 0);
-    fv[f] = sw > 0 ? cs.reduce((t, x) => t + x.w * x.v, 0) / sw : 0;
-    if (f === 'deriv' && !hasExtremeFr) return;
-    if (sw > 0) { wAct += FW[f]; wSum += FW[f] * fv[f]; }
+  // ۳) مشتقات (فقط در فاندینگ افراطی یا تغییر OI معنادار ≥ 0.25٪)
+  const fr=DV.fr==null?0:DV.fr,hasFr=DV.fr!=null&&(fr>.04||fr<-.015);
+  const dp5=(mid/c1[c1.length-6]-1)*100;let oc=null;
+  if(FL.oi.length>=2){const o0=FL.oi.find(x=>now-x.t<=3e5)||FL.oi[0];oc=(FL.oi[FL.oi.length-1].v/o0.v-1)*100}
+  const hasOi=oc!=null&&Math.abs(oc)>=.25&&Math.abs(dp5)>=.08;
+  const ov=hasOi?(oc>0?(dp5>0?1:-1):(dp5>0?.3:-.3)):0;
+  add('مشتقات (OI/فاندینگ افراطی)',8,(hasFr?(fr>.04?-.7:.7):0)+ov*.5,hasFr?fa(fr,4)+'٪':hasOi?pct(oc):'خنثی','deriv');
+
+  // ۴) ساختار و پرایس‌اکشن ۵ دقیقه‌ای (با منطق ضدتعقیب به‌جای خرید در اوج)
+  const e9_5=ema(c5,9).at(-1),e21_5=ema(c5,21).at(-1);
+  const w=a1.slice(-60),pv=w.reduce((t,x)=>t+(x.h+x.l+x.c)/3*x.v,0),vv=w.reduce((t,x)=>t+x.v,0),vwap=vv>0?pv/vv:mid;
+  const vDist=(mid-vwap)/A5;
+  const vScore=vDist>0?(vDist<=1.1?Math.min(1,vDist/.45):Math.max(0,1-(vDist-1.1)/.7)):(vDist>=-1.1?Math.max(-1,vDist/.45):Math.min(0,-1-(vDist+1.1)/.7));
+  add('موقعیت سالم نسبت به VWAP',10,vScore,pct((mid/vwap-1)*100));
+  add('روند ۵دقیقه (EMA9/21)',12,(e9_5-e21_5)/(.6*A5),e9_5>e21_5?'صعودی':'نزولی');
+  const H5=macdHist(c5),h0=H5.at(-1),h1=H5.at(-2);
+  add('MACD پنج‌دقیقه‌ای',8,(h0>0?.5:-.5)+(h0>h1?.5:-.5),h0>0?'مثبت':'منفی');
+  add('روند ۱ساعته',8,MTF.h1||0,tt(MTF.h1));
+  const ss5=swingStruct(a5.slice(-80),2);
+  add('ساختار ۵دقیقه‌ای (HH/HL و BOS)',12,ss5.dir*.7+ss5.bos*.4,ss5.dir>0?'صعودی':ss5.dir<0?'نزولی':'مختلط');
+
+  const FW={flow:30,price:48,book:16,deriv:6},fv={};
+  let wAct=0,wSum=0;
+  Object.keys(FW).forEach(f=>{
+    const cs=R.comp.filter(x=>x.fam===f),sw=cs.reduce((t,x)=>t+x.w,0);
+    fv[f]=sw>0?cs.reduce((t,x)=>t+x.w*x.v,0)/sw:0;
+    if(f==='deriv'&&!hasFr&&!hasOi)return;
+    if(sw>0){wAct+=FW[f];wSum+=FW[f]*fv[f]}
   });
-  const S0 = wAct > 0 ? (wSum / wAct) * 100 : 0;
-  const er = effRatio(c5, 19), regime = er >= 0.3 ? 1 : er >= 0.2 ? 0.9 : 0.75;
-  R.score = Math.min(100, Math.round(Math.abs(S0) * 1.25 * regime)); R.dir = S0 >= 0 ? 1 : -1;
+  const S0=wAct>0?(wSum/wAct)*100:0;
+  const n5=c5.length-1,den=c5.slice(n5-19,n5+1).reduce((t,x,i,arr)=>i?t+Math.abs(x-arr[i-1]):t,0),er=den>0?Math.abs(c5[n5]-c5[n5-19])/den:0;
+  const regime=er>=.3?1:er>=.2?.9:.75;
+  R.fam=Object.keys(FW).map(f=>({f,name:{flow:'جریان سفارش',price:'ساختار و روند ۵m/۱h',book:'دفتر سفارش',deriv:'مشتقات'}[f],w:FW[f],v:fv[f]}));
+  R.score=Math.min(100,Math.round(Math.abs(S0)*1.25*regime));R.dir=S0>=0?1:-1;R.regime=regime;
 
-  const dd = R.dir, distE21 = ((mid - e21_5) * dd) / A5;
-  gate('هم‌جهت با روند ۱ساعته', !(h1Trend !== 0 && h1Trend * dd < 0), h1Trend > 0 ? 'صعودی' : h1Trend < 0 ? 'نزولی' : 'خنثی');
-  gate('عدم تعقیب قیمت', distE21 <= 1.35 && distE21 >= -0.35, fa(distE21, 2) + ' ATR');
-  const agree = ['flow', 'price', 'book', 'deriv'].filter((f) => fv[f] * dd >= 0.25);
-  gate('تأیید مستقل', agree.includes('price') && agree.length >= 2 && (agree.includes('flow') || agree.includes('book')), agree.join('+') || 'هیچ');
-  gate('جریان مخالف نیست', fv.flow * dd > -0.1, fa(fv.flow * dd * 100, 0) + '٪');
-  gate('روندی بودن', er >= 0.18, 'ER=' + fa(er, 2));
-  const rs = rsi(c5), m2 = (mid / c5[Math.max(0, c5.length - 25)] - 1) * 100 * dd;
-  gate('بدون کشیدگی', !(m2 > 8 * ap5 || (rs != null && (dd < 0 ? rs < 32 : rs > 68))), 'RSI ' + (rs == null ? '—' : Math.round(rs)));
-  R.gateOk = R.gate.every((x) => x.ok);
+  // گیت‌های سخت‌گیرانه ضدورود در اوج و ضدخلاف‌روند
+  const dd=R.dir,distE21=(mid-e21_5)*dd/A5;
+  const h1Ok=!(MTF.h1&&MTF.h1*dd<0);
+  gate('هم‌جهت با روند ۱ساعته',h1Ok,tt(MTF.h1));
+  gate('عدم تعقیب قیمت (نزدیک EMA21 ۵m)',distE21<=1.35&&distE21>=-.35,fa(distE21,2)+' ATR');
+  const agree=['flow','price','book','deriv'].filter(f=>fv[f]*dd>=.25);
+  gate('تأیید مستقل (قیمت + جریان/دفتر)',agree.includes('price')&&agree.length>=2&&(agree.includes('flow')||agree.includes('book')),agree.length?agree.map(f=>({flow:'جریان',price:'قیمت',book:'دفتر',deriv:'مشتقات'}[f])).join('+'):'هیچ');
+  gate('جریان سفارش مخالف نیست',fv.flow*dd>-.1,fa(fv.flow*dd*100,0)+'٪');
+  gate('رژیم بازار (روندی بودن)',er>=.18,'ER='+fa(er,2));
+  const m2=(mid/c5[Math.max(0,n5-24)]-1)*100*dd,rs=rsi(c5),ext=m2>8*ap5||(rs!=null&&(dd<0?rs<32:rs>68));
+  gate('بدون کشیدگی (RSI/حرکت ۲ساعته)',!ext,pct(m2)+' | RSI '+(rs==null?'—':fa(rs,0)));
+  R.ctx={ap5,er,rsi:rs,m2};
+  R.gateOk=R.gate.every(x=>x.ok);
 
-  // حد ضرر ساختاری ۵ دقیقه‌ای + بررسی فضای حرکت تا مقاومت/حمایت + TP1 واقع‌بینانه
-  const d = R.dir, l5w = a5.slice(-5), sw = d > 0 ? Math.min(...l5w.map((x) => x.l)) : Math.max(...l5w.map((x) => x.h));
-  const risk = Math.max(d > 0 ? mid - (sw - 0.2 * A5) : (sw + 0.2 * A5) - mid, 1.0 * A5);
-  const scalpCost = Math.min(costPct, 0.12), cost = mid * (scalpCost / 100);
-  const tp1Dist = 1.3 * risk, tp2Dist = 2.2 * risk;
-  const rr1 = (tp1Dist - cost) / (risk + cost), rr2 = (tp2Dist - cost) / (risk + cost);
-  const piv = findPivots(a5.slice(-96), 3, A5, 0.9);
-  const hiL = [...piv.highs.map((x) => x.p), Math.max(...a5.slice(-96).map((x) => x.h))].filter((x) => x > mid * 1.0003);
-  const loL = [...piv.lows.map((x) => x.p), Math.min(...a5.slice(-96).map((x) => x.l))].filter((x) => x < mid * 0.9997);
-  const near = d > 0 ? Math.min(Infinity, ...hiL) : Math.max(-Infinity, ...loL);
-  const room = Number.isFinite(near) ? (d > 0 ? near - mid : mid - near) : Infinity;
-
-  if (risk > 2.0 * A5) R.why = 'حد ضرر دور است';
-  else if (room < 1.25 * risk) R.why = (d > 0 ? 'مقاومت' : 'حمایت') + ' نزدیک است';
-  else if (rr1 < 1.0 || rr2 < 1.5) R.why = 'RR پس از کارمزد ال‌بانک کم است';
-  R.setup = { entry: mid, maxEntry: mid + d * 0.12 * A5, sl: mid - d * risk, tp1: mid + d * tp1Dist, tp2: mid + d * tp2Dist, rr2 };
-  R.setupOk = risk <= 2.0 * A5 && room >= 1.25 * risk && rr1 >= 1.0 && rr2 >= 1.5;
-  R.fv = fv; R.er = er; R.ap5 = ap5; R.cost = scalpCost;
-  R.regime = er >= 0.3 ? 'TREND' : er >= 0.2 ? 'MIXED' : 'CHOP';
-  if (!R.gateOk) R.why = 'گیت رد شد: ' + R.gate.filter((x) => !x.ok).map((x) => x.name).join('، ');
-  else if (R.score < SCALP_MIN_SCORE) R.why = 'قدرت کمتر از ' + SCALP_MIN_SCORE;
-  R.ok = R.gateOk && R.score >= SCALP_MIN_SCORE && !R.why;
+  // حد ضرر ساختاری بر پایه ۵ کندل ۵ دقیقه‌ای + TP1 واقع‌بینانه برای اسکالپ
+  const d=R.dir,l5w=a5.slice(-5),sw=d>0?Math.min(...l5w.map(x=>x.l)):Math.max(...l5w.map(x=>x.h));
+  let risk=Math.max(d>0?mid-(sw-.2*A5):(sw+.2*A5)-mid,1.0*A5);
+  const scalpCost=Math.min(CFGX.cost,.12),cost=mid*(scalpCost/100);
+  const tp1Dist=1.3*risk,tp2Dist=2.2*risk;
+  const rr1=(tp1Dist-cost)/(risk+cost),rr2=(tp2Dist-cost)/(risk+cost);
+  const lv=sigLevels(a5.slice(-96),3,A5,1);lv.hi.push(Math.max(...a5.slice(-96).map(x=>x.h)));lv.lo.push(Math.min(...a5.slice(-96).map(x=>x.l)));
+  const near=d>0?Math.min(Infinity,...lv.hi.filter(x=>x>mid*1.0002)):Math.max(-Infinity,...lv.lo.filter(x=>x<mid*.9998));
+  const room=Number.isFinite(near)?(d>0?near-mid:mid-near):Infinity;
+  if(risk>2.0*A5)R.why='حد ضرر منطقی دور است (ورود دیر)';
+  else if(room<1.25*risk)R.why=(d>0?'مقاومت':'حمایت')+' نزدیک است؛ فضا کمتر از ۱٫۲۵ برابر ریسک';
+  else if(rr1<1.0||rr2<1.5)R.why='حرکت قابل‌انتظار نسبت به کارمزد کوچک است';
+  R.setup={entry:mid,maxEntry:mid+d*.12*A5,sl:mid-d*risk,tp1:mid+d*tp1Dist,tp2:mid+d*tp2Dist,rr2,rsi:rs};
+  if(!R.gateOk)R.why='گیت رد شد: '+R.gate.filter(x=>!x.ok).map(x=>x.name).join('، ');
+  else if(R.score<SCALP_MIN)R.why='قدرت سیگنال کمتر از '+fa(SCALP_MIN)+' است';
+  R.ok=R.gateOk&&R.score>=SCALP_MIN&&!R.why;
   return R;
+}
+function scalpTick(){
+  if(SA.on)return;
+  const R=scalpEval();FL.res=R;renderScalp();
+  if(scalpStable(symbol,R)){fireAlert('scalp',symbol,R.dir,R.score,R.setup);logSig(symbol,R.dir,R.setup.entry,R.setup.tp1,R.setup.sl,'scalp',20*60000,R.score,R.ctx)}
 }
 
 /* ======================================================================

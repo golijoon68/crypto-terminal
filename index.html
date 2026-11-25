@@ -2310,6 +2310,215 @@ function setSub(k,v){
   }
 })();
 </script>
+  <script>
+/* ===== v14.4: همگام‌سازی هوشمند و زنده بین دستگاه‌های مدیر ===== */
+(function(){
+  const L=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
+  // بازیابی خودکار رمز مدیر هنگام باز شدن برنامه (اگر تیک ذخیره فعال باشد)
+  const savedAuto=L('gl_adm_auto')==='1', savedKey=L('gl_adm_keep')||'';
+  if(savedAuto && savedKey){
+    try{sessionStorage.setItem('gl_adm',savedKey)}catch(e){}
+    L('gl_isadm','1');
+  }
+  if(L('gl_isadm')!=='1') return;
+
+  const API=()=>((typeof GL_API!=='undefined'&&GL_API)||L('proxy')||'').trim().replace(/\/+$/,'');
+  const getKey=()=>(sessionStorage.getItem('gl_adm')||(L('gl_adm_auto')==='1'?L('gl_adm_keep'):'')||'').trim();
+  const myDev=L('gl_dev')||('d'+Math.random().toString(36).slice(2,10));
+  const fmtT=t=>!t?'—':new Date(t).toLocaleTimeString('fa-IR',{timeZone:'Asia/Tehran',hour12:false});
+
+  let lastTs=0, remoteFiring=false, lastSnapHash='', busy=false;
+  const firedRemote=new Set();
+
+  function readPrefs(){
+    const obj={
+      sel_scan:L('sel_scan')||'', sel_scalp:L('sel_scalp')||'',
+      risk:L('risk')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1'
+    };
+    const raw=JSON.stringify(obj);
+    if(L('gl_prefs_snap')!==raw){ L('gl_prefs_snap',raw); L('gl_prefs_ts',String(Date.now())); }
+    return { ts: +(L('gl_prefs_ts')||0), ...obj };
+  }
+
+  function applyState(S){
+    if(!S) return;
+    lastTs=Math.max(lastTs, S.updatedAt||0);
+    const now=Date.now();
+
+    // ۱) دریافت تاریخچه دامیننس کامل‌تر از دستگاه‌های دیگر
+    if(Array.isArray(S.dom) && S.dom.length && typeof DOM!=='undefined'){
+      const m=new Map();
+      [...(DOM.h||[]), ...S.dom].forEach(x=>{ if(x&&x.t&&now-x.t<6*36e5) m.set(Math.floor(x.t/30000),x); });
+      DOM.h=[...m.values()].sort((a,b)=>a.t-b.t).slice(-360);
+      L('dom',JSON.stringify(DOM.h));
+      const last=DOM.h[DOM.h.length-1];
+      if(last&&Number.isFinite(last.u)){
+        DOM.btc=last.b; DOM.usdt=last.u;
+        const ref=DOM.h.find(x=>now-x.t>=45*60000&&now-x.t<=90*60000)||DOM.h[0], mins=(now-ref.t)/60000, du=last.u-ref.u;
+        DOM.ctx=mins>=10?(du<=-.05?1:du>=.05?-1:0):0;
+        const rl=DOM.h.find(x=>now-x.t>=150*60000&&now-x.t<=260*60000);
+        DOM.ctxL=rl?(last.u-rl.u<=-.08?1:last.u-rl.u>=.08?-1:0):0;
+      }
+    }
+
+    // ۲) ادغام دفترچه
+    if(Array.isArray(S.journal) && typeof JR!=='undefined'){
+      const stRank={open:1,expired:2,loss:3,win:3};
+      let ch=false;
+      S.journal.forEach(e=>{
+        const idx=JR.findIndex(x=>x.id===e.id||(x.sym===e.sym&&x.side===e.side&&(x.src||'cons')===(e.src||'cons')&&Math.abs((x.t||0)-(e.t||0))<90000));
+        if(idx<0){ JR.push(e); ch=true; }
+        else if((stRank[e.status]||0)>(stRank[JR[idx].status]||0)){ JR[idx]={...JR[idx],...e}; ch=true; }
+      });
+      if(ch){ JR.sort((a,b)=>(a.t||0)-(b.t||0)); if(typeof saveJ==='function')saveJ(); if(typeof renderJournal==='function')renderJournal(); }
+    }
+
+    // ۳) ادغام پیشنهادهای اخیر
+    if(S.recent && typeof RT!=='undefined'){
+      let ch=false;
+      ['scalp','scanner'].forEach(k=>{
+        const inc=S.recent[k]||{};
+        Object.entries(inc).forEach(([id,o])=>{
+          if(!o||now-(o.seen||0)>30*60000)return;
+          const cur=RT.data[k][id];
+          if(!cur||o.score>cur.score||o.seen>cur.seen){ RT.data[k][id]={...(cur||{}),...o,ok:!!(cur?.ok||o.ok)}; ch=true; }
+        });
+      });
+      if(ch){ L('recent2',JSON.stringify(RT.data)); if(typeof rtDraw==='function'){rtDraw('scalp');rtDraw('scanner');} }
+    }
+
+    // ۴) تاریخچه هشدارها
+    if(Array.isArray(S.ahist) && S.ahist.length){ L('ahist',JSON.stringify(S.ahist.slice(0,40))); }
+
+    // ۵) همگام‌سازی تنظیمات (ارزها، ریسک، وزن‌ها)
+    if(S.prefs && Number(S.prefs.ts) > +(L('gl_prefs_ts')||0)){
+      const oldScan=L('sel_scan')||'', oldScalp=L('sel_scalp')||'';
+      ['sel_scan','sel_scalp','risk','w2','scalpCost','saOn'].forEach(k=>{ if(S.prefs[k]!==undefined&&S.prefs[k]!=='') L(k,String(S.prefs[k])); });
+      const snap={ sel_scan:L('sel_scan')||'', sel_scalp:L('sel_scalp')||'', risk:L('risk')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1' };
+      L('gl_prefs_snap',JSON.stringify(snap));
+      L('gl_prefs_ts',String(S.prefs.ts));
+      if((S.prefs.sel_scan&&S.prefs.sel_scan!==oldScan)||(S.prefs.sel_scalp&&S.prefs.sel_scalp!==oldScalp)){
+        setTimeout(()=>location.reload(),800);
+      }
+    }
+
+    // ۶) دریافت و اجرای هم‌زمان سیگنال‌های ارسال‌شده از دستگاه‌های دیگر مدیر
+    if(Array.isArray(S.signals) && typeof fireAlert==='function'){
+      S.signals.forEach(sg=>{
+        if(!sg||!sg.id||sg.dev===myDev||firedRemote.has(sg.id)||now-sg.t>12*60000) return;
+        firedRemote.add(sg.id);
+        remoteFiring=true;
+        try{ fireAlert(sg.kind, sg.sym, sg.dir, sg.score, sg.s); }finally{ remoteFiring=false; }
+      });
+    }
+
+    const stEl=document.getElementById('syncSt');
+    if(stEl) stEl.textContent=`✓ همگام شد (${fmtT(now)}) · دامیننس: ${fa((S.dom||[]).length)} نقطه · دفترچه: ${fa((S.journal||[]).length)}`;
+  }
+
+  async function syncNow(pushSig, forcePost){
+    const api=API(), k=getKey();
+    const stEl=document.getElementById('syncSt');
+    if(!api||!k){ if(stEl)stEl.textContent='برای شروع، رمز مدیر را وارد و ذخیره کن.'; return; }
+    if(busy && !pushSig) return;
+    busy=true;
+    try{
+      const payload={
+        dev:myDev,
+        dom:typeof DOM!=='undefined'?DOM.h:[],
+        journal:typeof JR!=='undefined'?JR:[],
+        recent:typeof RT!=='undefined'?RT.data:{},
+        ahist:(()=>{try{return JSON.parse(L('ahist')||'[]')}catch(e){return[]}})(),
+        prefs:readPrefs(),
+        pushSig:pushSig||null
+      };
+      const hash=JSON.stringify([payload.dom.length,payload.journal.length,Object.keys(payload.recent.scalp||{}).length,Object.keys(payload.recent.scanner||{}).length,payload.prefs.ts]);
+      const needPost=!!pushSig || forcePost || hash!==lastSnapHash;
+      const res=needPost
+        ? await fetch(api+'/admin/sync',{method:'POST',headers:{'Content-Type':'application/json','X-Key':k},body:JSON.stringify(payload)})
+        : await fetch(api+'/admin/sync?since='+lastTs,{headers:{'X-Key':k}});
+      const d=await res.json();
+      if(d.error){
+        if(stEl)stEl.textContent='⚠ '+d.error;
+        if(res.status===401){ sessionStorage.removeItem('gl_adm'); L('gl_adm_keep',null); L('gl_adm_auto','0'); }
+        return;
+      }
+      if(needPost) lastSnapHash=hash;
+      if(d.state) applyState(d.state);
+      else if(d.unchanged && stEl && !stEl.textContent.includes('✓')) stEl.textContent='✓ متصل و به‌روز ('+fmtT(Date.now())+')';
+    }catch(e){
+      if(stEl)stEl.textContent='⚠ خطا در همگام‌سازی';
+    }finally{ busy=false; }
+  }
+
+  // رهگیری فوری سیگنال‌های محلی و پخش هم‌زمان روی بقیه دستگاه‌های مدیر
+  if(typeof fireAlert==='function'){
+    const origFA=fireAlert;
+    fireAlert=function(kind,sym,dir,score,s){
+      const r=origFA.apply(this,arguments);
+      if(!remoteFiring && getKey() && (kind==='scan'||(kind==='scalp'&&score>=65))){
+        syncNow({ id:kind+'_'+sym+'_'+dir+'_'+Math.floor(Date.now()/60000), kind, sym, dir, score, s, dev:myDev }, true);
+      }
+      return r;
+    };
+  }
+
+  // ساخت کارت کنترل همگام‌سازی در تب «پنل» (فقط برای مدیر)
+  const dash=document.getElementById('tp-dash');
+  if(dash){
+    const c=mk('div','card'); c.id='adminSyncCard'; c.style.marginBottom='12px';
+    c.innerHTML=`
+      <div class="ph"><h3>🔄 همگام‌سازی خودکار دستگاه‌های مدیر</h3><span class="chip up">D1 Sync</span></div>
+      <div class="sub">اطلاعات دامیننس، دفترچه، پیشنهادهای اخیر، تنظیمات و سیگنال‌های زنده را بین سیستم‌ها و گوشی تو یکپارچه می‌کند (دستگاه پُرداده به کم‌داده می‌دهد).</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:10px 0;cursor:pointer">
+        <input type="checkbox" id="admAutoChk" ${L('gl_adm_auto')==='1'?'checked':''}>
+        ذخیره رمز مدیر روی این دستگاه (همگام‌سازی خودکار هنگام باز شدن برنامه)
+      </label>
+      <div id="syncSt" class="sub" style="margin-bottom:8px">در حال بررسی...</div>
+      <div class="btnrow">
+        <button id="syncNowBtn" class="btnx">همگام‌سازی فوری الان</button>
+        <button id="syncClrBtn" class="btnx warn">پاک کردن رمز ذخیره‌شده</button>
+      </div>
+    `;
+    dash.prepend(c);
+
+    const chk=document.getElementById('admAutoChk');
+    chk.addEventListener('change',()=>{
+      if(chk.checked){
+        let k=getKey();
+        if(!k){ k=(prompt('رمز مدیر را برای ذخیره و همگام‌سازی خودکار وارد کن:')||'').trim(); }
+        if(!k){ chk.checked=false; return; }
+        sessionStorage.setItem('gl_adm',k);
+        L('gl_adm_keep',k); L('gl_adm_auto','1');
+        syncNow(null,true);
+      }else{
+        L('gl_adm_auto','0'); L('gl_adm_keep',null);
+        document.getElementById('syncSt').textContent='ذخیره خودکار خاموش شد (فقط تا زمان باز بودن این تب فعال است).';
+      }
+    });
+    document.getElementById('syncNowBtn').addEventListener('click',()=>{
+      if(!getKey()){
+        const k=(prompt('رمز مدیر:')||'').trim();
+        if(!k)return;
+        sessionStorage.setItem('gl_adm',k);
+        if(chk.checked) L('gl_adm_keep',k);
+      }
+      syncNow(null,true);
+    });
+    document.getElementById('syncClrBtn').addEventListener('click',()=>{
+      L('gl_adm_auto','0'); L('gl_adm_keep',null); sessionStorage.removeItem('gl_adm');
+      chk.checked=false; document.getElementById('syncSt').textContent='رمز ذخیره‌شده از این دستگاه پاک شد.';
+    });
+  }
+
+  // شروع خودکار همگام‌سازی: ادغام اولیه + پولینگ سبک ۱۰ ثانیه‌ای + ارسال تغییرات هر ۶۰ ثانیه
+  if(getKey()){
+    setTimeout(()=>syncNow(null,true), 2500);
+    setInterval(()=>{ if(!document.hidden && getKey()) syncNow(null,false); }, 10000);
+    setInterval(()=>{ if(!document.hidden && getKey()) syncNow(null,true); }, 60000);
+  }
+})();
+</script>
   <script type="module" src="golibit-bridge.js?v=14"></script>
 </body>
 

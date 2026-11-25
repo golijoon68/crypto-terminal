@@ -1250,7 +1250,7 @@ function scalpEval(){
   const l1=a1[a1.length-1],l5Last=a5[a5.length-1];
   const spike=Math.max((l1.h-l1.l)/A1,(l5Last.h-l5Last.l)/A5);
   gate('بدون جهش ناگهانی',spike<2.4,fa(spike,1)+' برابر ATR');
-  const age=Math.max(now-FL.bt,now-FL.dt);gate('تازگی داده‌ی زنده',age<5000,fa(age/1000,1)+' ثانیه');
+  const age=Math.max(now-FL.bt,now-FL.dt);gate('تازگی داده‌ی زنده',age<15000,fa(age/1000,1)+' ثانیه');
   {const rk=riskState();gate('قفل ریسک',!rk.locked,rk.locked?rk.reason:'آزاد')}
 
   const add=(name,w,v,txt,fam)=>R.comp.push({name,w,v:clamp(v),txt,fam:fam||'price'});
@@ -1428,8 +1428,8 @@ function saStart(){
   saConnect();saLiq();saLoadFund();saWarm();
   const N=SCALP_COINS.length;
   /* ساعت داخل Web Worker: تب پس‌زمینه در کامپیوتر هم کند نمی‌شود */
-  saN=0;
-  const step=()=>{saN++;if(saN%2===0)saTick();else saLoadK(SCALP_COINS[SA.kI++%N]);if(saN%8===0)saLoadLS(SCALP_COINS[SA.lI++%N]);if(saN%20===0)saLoadMtf(SCALP_COINS[SA.mI++%N]);if(saN%300===0)saLoadFund()};
+  saN=0;let saLast=Date.now();
+const step=()=>{saN++;if(saN%2===0)saTick();else saLoadK(SCALP_COINS[SA.kI++%N]);if(saN%8===0)saLoadLS(SCALP_COINS[SA.lI++%N]);if(saN%20===0)saLoadMtf(SCALP_COINS[SA.mI++%N]);if(saN%300===0)saLoadFund();if(saN%10===0&&!document.hidden){const mb=Math.max(0,...SCALP_COINS.map(x=>(SA.c[x]&&SA.c[x].FL.bt)||0));if(mb>saLast)saLast=mb;if(Date.now()-saLast>20000){saLast=Date.now();SA.idx++;saConnect()}}};
   try{const w=new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(1)},1000)'],{type:'text/javascript'})));w.onmessage=step;saClk=w}
   catch(e){saTimers=[setInterval(step,1000)]}
 }

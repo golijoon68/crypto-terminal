@@ -1063,9 +1063,9 @@ function evalCoin(sym,D,btcBias){
   const ap=A/price*100;
   if(ap<.12)rej('نوسان خیلی کم است');
   if(ap>2.5)rej('نوسان بیش‌ازحد؛ ریسک لغزش بالا');
-  if(d>0?r>65:r<35)rej(d>0?'اشباع خرید (نزدیک سقف)؛ ورود دیر':'اشباع فروش (نزدیک کف)؛ ورود دیر');
+  if(d>0?r>70:r<30)rej(d>0?'اشباع خرید (سقف)؛ ورود دیر':'اشباع فروش (کف)؛ ورود دیر');
   const c1h=D.h1.a.map(x=>x.c),n1=c1h.length-1,r1h=rsi(c1h);
-  if(Number.isFinite(r1h)&&(d>0?r1h>68:r1h<32))rej(d>0?'اشباع خرید در ۱ساعته؛ ورود دیر':'اشباع فروش در ۱ساعته؛ ورود دیر');
+  if(Number.isFinite(r1h)&&(d>0?r1h>73:r1h<27))rej(d>0?'اشباع خرید در ۱ساعته؛ ورود دیر':'اشباع فروش در ۱ساعته؛ ورود دیر');
   const den1=c1h.slice(n1-19).reduce((t,x,i,arr)=>i?t+Math.abs(x-arr[i-1]):t,0),er1=den1>0?Math.abs(c1h[n1]-c1h[n1-19])/den1:0;
   if(er1<.2)rej('بازار ۱ساعته رنج است (ER='+fa(er1,2)+')');
   if((price-c[n])*d>.8*A)rej('قیمت در جهت معامله پریده؛ منتظر پولبک یا کندل بعدی');
@@ -1074,7 +1074,7 @@ function evalCoin(sym,D,btcBias){
   if(trendOk)o.reasons.push('روند '+(d>0?'صعودی':'نزولی')+' در ۱ساعته و ۴ساعته');
   const dist=(price-e20[n])*d/A;
   if(dist<=.3&&dist>=-1.2){ps+=15;o.reasons.push('قیمت نزدیک EMA20 (پولبک سالم)')}
-  else if(dist>1.5){ps-=10;rej('قیمت از EMA20 خیلی دور شده؛ منتظر پولبک');o.warns.push('قیمت از EMA20 دور شده؛ احتمال تعقیب')}
+  else if(dist>2){ps-=10;rej('قیمت از EMA20 خیلی دور شده؛ منتظر پولبک');o.warns.push('قیمت از EMA20 دور شده؛ احتمال تعقیب')}
   const st1=swingStruct(D.h1.a.slice(-150),3),st15=swingStruct(a.slice(-120),3);
   if(st1.dir*d>0){ps+=10;o.reasons.push('ساختار ۱ساعته: '+(d>0?'سقف و کف بالاتر (HH/HL)':'سقف و کف پایین‌تر (LH/LL)')+(st15.bos*d>0?' + شکست ساختار ۱۵دقیقه':''))}
   else if(st1.dir*d<0){ps-=10;o.warns.push('ساختار ۱ساعته خلاف جهت است')}
@@ -1287,7 +1287,10 @@ function scalpEval(){
   const ss5=swingStruct(a5.slice(-80),2);
   add('ساختار ۵دقیقه‌ای (HH/HL و BOS)',12,ss5.dir*.7+ss5.bos*.4,ss5.dir>0?'صعودی':ss5.dir<0?'نزولی':'مختلط');
 
-  const FW={flow:30,price:48,book:16,deriv:6},fv={};
+  const n5=c5.length-1,den=c5.slice(n5-19,n5+1).reduce((t,x,i,arr)=>i?t+Math.abs(x-arr[i-1]):t,0),er=den>0?Math.abs(c5[n5]-c5[n5-19])/den:0;
+  const regName=er>=.3?'TREND':er>=.2?'MIXED':'CHOP';
+  const FW=(window.GL_BRAIN&&window.GL_BRAIN.scalpWeights&&window.GL_BRAIN.scalpWeights[regName])||{flow:28,price:48,book:16,deriv:8};
+  const fv={};
   let wAct=0,wSum=0;
   Object.keys(FW).forEach(f=>{
     const cs=R.comp.filter(x=>x.fam===f),sw=cs.reduce((t,x)=>t+x.w,0);
@@ -1296,12 +1299,10 @@ function scalpEval(){
     if(sw>0){wAct+=FW[f];wSum+=FW[f]*fv[f]}
   });
   const S0=wAct>0?(wSum/wAct)*100:0;
-  const n5=c5.length-1,den=c5.slice(n5-19,n5+1).reduce((t,x,i,arr)=>i?t+Math.abs(x-arr[i-1]):t,0),er=den>0?Math.abs(c5[n5]-c5[n5-19])/den:0;
   const regime=er>=.3?1:er>=.2?.9:.75;
   R.fam=Object.keys(FW).map(f=>({f,name:{flow:'جریان سفارش',price:'ساختار و روند ۵m/۱h',book:'دفتر سفارش',deriv:'مشتقات'}[f],w:FW[f],v:fv[f]}));
-  R.score=Math.min(100,Math.round(Math.abs(S0)*1.25*regime));R.dir=S0>=0?1:-1;R.regime=regime;
+  R.score=Math.min(100,Math.round(Math.abs(S0)*1.25*regime));R.dir=S0>=0?1:-1;R.regime=regime;R.regName=regName;R.fv=fv;R.er=er;
 
-  // گیت‌های سخت‌گیرانه ضدورود در اوج و ضدخلاف‌روند
   const dd=R.dir,distE21=(mid-e21_5)*dd/A5;
   const h1Ok=!(MTF.h1&&MTF.h1*dd<0);
   gate('هم‌جهت با روند ۱ساعته',h1Ok,tt(MTF.h1));
@@ -1315,22 +1316,24 @@ function scalpEval(){
   R.ctx={ap5,er,rsi:rs,m2};
   R.gateOk=R.gate.every(x=>x.ok);
 
-  // حد ضرر ساختاری بر پایه ۵ کندل ۵ دقیقه‌ای + TP1 واقع‌بینانه برای اسکالپ
   const d=R.dir,l5w=a5.slice(-5),sw=d>0?Math.min(...l5w.map(x=>x.l)):Math.max(...l5w.map(x=>x.h));
   let risk=Math.max(d>0?mid-(sw-.2*A5):(sw+.2*A5)-mid,1.0*A5);
-  const scalpCost=Math.min(CFGX.cost,.12),cost=mid*(scalpCost/100);
-  const tp1Dist=1.3*risk,tp2Dist=2.2*risk;
+  const liveSlip=sm!=null?sm/100:0.05;
+  const effCost=+(Math.max(CFGX.cost||.12,.12)+liveSlip).toFixed(4),cost=mid*(effCost/100);
+  const tp1Dist=1.4*risk,tp2Dist=2.3*risk;
   const rr1=(tp1Dist-cost)/(risk+cost),rr2=(tp2Dist-cost)/(risk+cost);
   const lv=sigLevels(a5.slice(-96),3,A5,1);lv.hi.push(Math.max(...a5.slice(-96).map(x=>x.h)));lv.lo.push(Math.min(...a5.slice(-96).map(x=>x.l)));
   const near=d>0?Math.min(Infinity,...lv.hi.filter(x=>x>mid*1.0002)):Math.max(-Infinity,...lv.lo.filter(x=>x<mid*.9998));
   const room=Number.isFinite(near)?(d>0?near-mid:mid-near):Infinity;
+  const minSc=Math.max(46,Math.min(62,+(window.GL_BRAIN&&window.GL_BRAIN.scalpMinScore)||SCALP_MIN));
   if(risk>2.0*A5)R.why='حد ضرر منطقی دور است (ورود دیر)';
-  else if(room<1.25*risk)R.why=(d>0?'مقاومت':'حمایت')+' نزدیک است؛ فضا کمتر از ۱٫۲۵ برابر ریسک';
-  else if(rr1<1.0||rr2<1.5)R.why='حرکت قابل‌انتظار نسبت به کارمزد کوچک است';
+  else if(room<1.3*risk)R.why=(d>0?'مقاومت':'حمایت')+' نزدیک است؛ فضا کمتر از ۱٫۳ برابر ریسک';
+  else if(rr1<1.0||rr2<1.5)R.why='RR خالص با هزینه '+fa(effCost,2)+'٪ کم است';
   R.setup={entry:mid,maxEntry:mid+d*.12*A5,sl:mid-d*risk,tp1:mid+d*tp1Dist,tp2:mid+d*tp2Dist,rr2,rsi:rs};
+  R.costPct=effCost;
   if(!R.gateOk)R.why='گیت رد شد: '+R.gate.filter(x=>!x.ok).map(x=>x.name).join('، ');
-  else if(R.score<SCALP_MIN)R.why='قدرت سیگنال کمتر از '+fa(SCALP_MIN)+' است';
-  R.ok=R.gateOk&&R.score>=SCALP_MIN&&!R.why;
+  else if(R.score<minSc)R.why='قدرت سیگنال کمتر از '+fa(minSc)+' است';
+  R.ok=R.gateOk&&R.score>=minSc&&!R.why;
   return R;
 }
 function scalpTick(){
@@ -2517,6 +2520,85 @@ function setSub(k,v){
     setInterval(()=>{ if(!document.hidden && getKey()) syncNow(null,false); }, 10000);
     setInterval(()=>{ if(!document.hidden && getKey()) syncNow(null,true); }, 60000);
   }
+})();
+</script>
+  <script>
+/* ===== v14.5: اتصال مرورگر به مغز D1 + ارسال زنده WebSocket اسکالپ برای یادگیری ===== */
+(function(){
+  const L=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+  const API=()=>((typeof GL_API!=='undefined'&&GL_API)||L('proxy')||'').trim().replace(/\/+$/,'');
+  window.GL_BRAIN={version:1,scalpWeights:null,scalpMinScore:50,minConfidence:68,fed:0};
+  const HARD=/اسپرد|لغزش|نوسان ۵دقیقه‌ای|جهش|تازگی|قفل/;
+  const sentMap={};
+
+  function drawBrainChip(){
+    const h=document.querySelector('#scalp .ph h3');
+    if(!h)return;
+    let b=document.getElementById('brainChip');
+    if(!b){b=document.createElement('span');b.id='brainChip';b.className='chip up';b.style.fontSize='10.5px';h.appendChild(b)}
+    b.textContent='🧠 v'+window.GL_BRAIN.version+(window.GL_BRAIN.fed?' · +'+window.GL_BRAIN.fed+' WS':'');
+  }
+
+  async function pullBrain(){
+    const api=API(); if(!api)return;
+    try{
+      const r=await(await fetch(api+'/engine/weights')).json();
+      if(!r||!r.version_id)return;
+      window.GL_BRAIN.version=r.version_id;
+      if(r.scalpWeights) window.GL_BRAIN.scalpWeights=r.scalpWeights;
+      if(r.thresholds){
+        if(Number.isFinite(+r.thresholds.scalpMinScore)) window.GL_BRAIN.scalpMinScore=+r.thresholds.scalpMinScore;
+        if(Number.isFinite(+r.thresholds.minConfidence)){
+          window.GL_BRAIN.minConfidence=+r.thresholds.minConfidence;
+          if(typeof SC!=='undefined') SC.min=Math.max(60,Math.min(72,+r.thresholds.minConfidence-3));
+        }
+      }
+      drawBrainChip();
+    }catch(e){}
+  }
+
+  async function feedScalpWS(){
+    if(document.hidden||window.GL_PRO===false||L('gl_isadm')!=='1')return;
+    const api=API(), k=(sessionStorage.getItem('gl_adm')||(L('gl_adm_auto')==='1'?L('gl_adm_keep'):'')||'').trim();
+    if(!api||!k)return;
+    const list=[];
+    if(typeof SA!=='undefined'&&SA.on&&typeof SCALP_COINS!=='undefined'){
+      SCALP_COINS.forEach(s=>{const R=SA.c[s]&&SA.c[s].res;if(R)list.push({sym:s,R})});
+    }else if(typeof FL!=='undefined'&&FL.res&&typeof symbol!=='undefined'){
+      list.push({sym:symbol,R:FL.res});
+    }
+    const now=Date.now();
+    const cand=list.filter(({sym,R})=>{
+      if(!R||!R.setup||!R.fv||!R.gate||!R.gate.length||!(R.score>=40))return false;
+      const dk=sym+R.dir; if(sentMap[dk]&&now-sentMap[dk]<15*60000)return false;
+      const bad=R.gate.filter(g=>!g.ok);
+      if(bad.some(g=>HARD.test(g.name)))return false;
+      return R.ok || bad.length<=2;
+    }).sort((a,b)=>(b.R.ok-a.R.ok)||(b.R.score-a.R.score))[0];
+    if(!cand)return;
+
+    const {sym,R}=cand, dk=sym+R.dir;
+    sentMap[dk]=now;
+    const layers={};
+    Object.entries(R.fv).forEach(([fk,v])=>{layers[fk]=+(v*R.dir).toFixed(3)});
+    try{
+      const r=await fetch(api+'/engine/ingest-scalp',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','X-Key':k},
+        body:JSON.stringify({
+          sym, dir:R.dir, regime:R.regName||'MIXED', score:R.score,
+          shadow:R.ok?0:1, reason:R.ok?'ws_live':'ws_shadow',
+          entry:R.setup.entry, sl:R.setup.sl, tp1:R.setup.tp1, tp2:R.setup.tp2,
+          cost:R.costPct||0.17, layers
+        })
+      });
+      if(r.ok){ window.GL_BRAIN.fed++; drawBrainChip(); }
+    }catch(e){}
+  }
+
+  pullBrain();
+  setInterval(pullBrain, 180000);
+  setInterval(feedScalpWS, 15000);
 })();
 </script>
   <script type="module" src="golibit-bridge.js?v=14"></script>

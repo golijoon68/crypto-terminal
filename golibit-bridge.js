@@ -1,12 +1,12 @@
 // ============================================================
-// GoliBit v13 Frontend Bridge — اتصال موتور چندلایه و داشبورد یادگیری به Index.html
+// GoliBit v14.3 Frontend Bridge — اتصال موتور چندلایه و مانیتور زنده یادگیری دوگانه
 // ============================================================
 import { DEFAULT_REGIME_WEIGHTS, DEFAULT_CONFIG, evaluateMarket } from './golibit-engine.js';
 import { runWalkForwardBacktest } from './golibit-learning.js';
 
 const LBANK_CFG = {
   ...DEFAULT_CONFIG,
-  feeRoundTripPct: 0.12, // LBank Futures Taker 0.06% × 2
+  feeRoundTripPct: 0.12,
   slippagePct: 0.05,
 };
 
@@ -17,6 +17,9 @@ const REGIME_FA = {
   VOL_SQUEEZE: 'فشردگی نوسان (آماده شکست)',
   VOL_SHOCK: 'شوک نوسانی (پرریسک ⚠)',
   TRANSITION: 'تغییر احتمالی رژیم',
+  TREND: 'روندی (اسکالپ)',
+  MIXED: 'مختلط (اسکالپ)',
+  CHOP: 'نوسانی/رنج (اسکالپ)',
   UNKNOWN: 'نامشخص',
 };
 
@@ -29,11 +32,24 @@ const LAYER_FA = {
   derivatives: 'مشتقات (Funding/OI/L-S)',
   mtf: 'هماهنگی تایم‌فریم‌ها (MTF)',
   context: 'همبستگی BTC و سنتیمنت',
+  flow: 'جریان سفارش زنده',
+  price: 'ساختار و روند ۵m/۱h',
+  book: 'عدم‌توازن دفتر سفارش',
+  deriv: 'مشتقات/فاندینگ',
+};
+
+const DEC_FA = {
+  PROMOTED: '✅ ارتقا یافت',
+  KEPT: '⏸ بدون تغییر (Holdout)',
+  SKIPPED: '⏳ جمع‌آوری نمونه',
+  ROLLED_BACK: '↩ بازگشت ایمن',
+  ERROR: '⚠ خطا',
 };
 
 const $ = (id) => document.getElementById(id);
 const fa = (n, d = 0) => (n == null || !Number.isFinite(Number(n)) ? '—' : Number(n).toLocaleString('fa-IR', { maximumFractionDigits: d }));
 const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: Number(n) >= 1 ? 2 : 5 }));
+const fmtTime = (t) => (!t ? '—' : new Date(t).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
 const apiBase = () => ((typeof window.GL_API === 'string' && window.GL_API) || localStorage.getItem('proxy') || '').trim().replace(/\/+$/, '');
 const BN = ['https://api.binance.com', 'https://data-api.binance.vision'];
 
@@ -70,7 +86,8 @@ async function syncCloudModel() {
 }
 
 function calLookup(regime, score) {
-  const b = calBins.find((x) => x.regime === regime && score >= x.score_low && score < x.score_high);
+  const b = calBins.find((x) => x.regime === regime && score >= x.score_low && score < x.score_high) ||
+            calBins.find((x) => x.regime === 'ALL' && score >= x.score_low && score < x.score_high);
   return b ? { prob: b.empirical_prob, ciLow: b.ci_low, ciHigh: b.ci_high, n: b.sample_count } : null;
 }
 
@@ -83,7 +100,7 @@ function mountQuantCard() {
   card.id = 'quantCard';
   card.innerHTML = `
     <div class="ph">
-      <h3><span class="pulse"></span>موتور چندلایه کوانت v14 (کارمزد LBank)</h3>
+      <h3><span class="pulse"></span>موتور چندلایه کوانت v14.3 (کارمزد LBank)</h3>
       <span id="qBadge" class="badge neutral">آماده تحلیل</span>
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
@@ -104,7 +121,7 @@ function mountQuantCard() {
     </div>
     <div id="qBody"><div class="sub">برای تحلیل هم‌زمان ساختار، SMC/ICT، تایم‌فریم‌ها، مشتقات و گیت ریسک دکمه بالا را بزن.</div></div>
   `;
-  sigTab.appendChild(card); // v14: اسکالپ و اسکنر بالا، موتور کوانت زیر آن‌ها
+  sigTab.prepend(card);
   $('qRunBtn').addEventListener('click', runQuantSingle);
 }
 
@@ -186,7 +203,7 @@ async function runQuantSingle() {
   }
 }
 
-/* ---------- ۲. داشبورد مدیریت موتور یادگیری + بک‌تست Walk-Forward در تب «تحلیل» ---------- */
+/* ---------- ۲. داشبورد مدیریت موتور یادگیری زنده (اسکنر + اسکالپ) + Walk-Forward ---------- */
 function mountEngineDashboard() {
   const tools = $('tp-tools');
   if (!tools || $('engineDash')) return;
@@ -196,12 +213,12 @@ function mountEngineDashboard() {
   card.style.marginTop = '12px';
   card.innerHTML = `
     <div class="ph">
-      <h3>🧠 داشبورد مدیریت موتور هوشمند و یادگیری (v13)</h3>
+      <h3><span class="pulse"></span>داشبورد یادگیری پویای زنده (اسکنر + اسکالپ)</h3>
       <span id="edBadge" class="badge neutral">در حال اتصال...</span>
     </div>
     <div id="edBody" class="gd"><div class="sub">در حال دریافت وضعیت زنده از Cloudflare D1...</div></div>
     <div class="btnrow" id="edActions">
-      <button id="edRefresh" class="btnx">به‌روزرسانی آمار موتور</button>
+      <button id="edRefresh" class="btnx">به‌روزرسانی زنده</button>
       <button id="edWfBtn" class="btnx">اجرای بک‌تست Walk-Forward (OOS)</button>
     </div>
     <div id="edWfOut" style="margin-top:10px"></div>
@@ -210,7 +227,7 @@ function mountEngineDashboard() {
 
   if (localStorage.getItem('gl_isadm') === '1') {
     const bLearn = document.createElement('button');
-    bLearn.className = 'btnx'; bLearn.textContent = '🧠 اجرای چرخه یادگیری';
+    bLearn.className = 'btnx'; bLearn.textContent = '🧠 اجرای چرخه یادگیری (هر دو موتور)';
     bLearn.addEventListener('click', () => adminEngineOp('/engine/learn'));
     const bRoll = document.createElement('button');
     bRoll.className = 'btnx warn'; bRoll.textContent = '↩ Rollback به نسخه قبل';
@@ -221,6 +238,7 @@ function mountEngineDashboard() {
   $('edRefresh').addEventListener('click', loadEngineDashboard);
   $('edWfBtn').addEventListener('click', runLiveWalkForward);
   loadEngineDashboard();
+  setInterval(() => { if (!document.hidden && $('tp-tools')?.classList.contains('on')) loadEngineDashboard(); }, 45000);
 }
 
 async function adminEngineOp(path) {
@@ -230,9 +248,46 @@ async function adminEngineOp(path) {
   if (!api || !k) return;
   try {
     const r = await (await fetch(api + path, { headers: { 'X-Key': k } })).json();
-    alert(JSON.stringify(r, null, 2).slice(0, 600));
+    alert(JSON.stringify(r, null, 2).slice(0, 700));
     loadEngineDashboard();
   } catch (e) { alert('خطا در ارتباط با Worker'); }
+}
+
+function summarizeSamples(rows, mode, target) {
+  const list = (rows || []).filter((x) => x.mode === mode);
+  let open = 0, closed = 0, realN = 0, shadowN = 0, wins = 0, losses = 0, timeouts = 0, sumR = 0;
+  for (const x of list) {
+    const n = Number(x.n) || 0;
+    if (x.is_open) open += n;
+    else {
+      closed += n;
+      wins += Number(x.w) || 0;
+      losses += Number(x.l) || 0;
+      timeouts += Number(x.t) || 0;
+      sumR += (Number(x.avg_r) || 0) * n;
+    }
+    if (x.is_shadow) shadowN += n; else realN += n;
+  }
+  const pctDone = Math.min(100, Math.round((closed / target) * 100));
+  const avgR = closed > 0 ? sumR / closed : 0;
+  return { open, closed, realN, shadowN, wins, losses, timeouts, avgR, target, pctDone };
+}
+
+function renderProgressBlock(title, st, minScoreLabel) {
+  return `
+    <div style="margin:10px 0;padding:10px;border:1px solid var(--line);border-radius:10px;background:rgba(0,0,0,.2)">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:4px">
+        <b>${title}</b>
+        <span class="chip ${st.closed >= st.target ? 'up' : 'w'}">${fa(st.closed)} از ${fa(st.target)} نمونه بسته‌شده (${fa(st.pctDone)}٪)</span>
+      </div>
+      <div style="height:7px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;margin:6px 0">
+        <div style="width:${st.pctDone}%;height:100%;background:linear-gradient(90deg,var(--accent),var(--up));transition:width .4s"></div>
+      </div>
+      <div class="kv"><span>نمونه باز | واقعی | سایه (Shadow)</span><b>${fa(st.open)} باز · ${fa(st.realN)} واقعی · ${fa(st.shadowN)} سایه</b></div>
+      <div class="kv"><span>نتیجه نمونه‌های آموزشی (برد / باخت / منقضی)</span><b>${fa(st.wins)} / ${fa(st.losses)} / ${fa(st.timeouts)} | میانگین ${(st.avgR >= 0 ? '+' : '') + fa(st.avgR, 3)} R</b></div>
+      <div class="kv"><span>آستانه امتیاز فعلی</span><b>${minScoreLabel}</b></div>
+    </div>
+  `;
 }
 
 async function loadEngineDashboard() {
@@ -246,20 +301,47 @@ async function loadEngineDashboard() {
 
     const hs = d.health?.status || 'WARMING_UP';
     badge.className = 'badge ' + (hs === 'HEALTHY' ? 'long' : hs === 'DEGRADED' ? 'short' : 'neutral');
-    badge.textContent = `مدل v${d.model?.version_id || 1} · ${hs} · ${pingMs}ms`;
+    badge.textContent = `مدل v${d.model?.version_id || 1} (${d.version || 'v14.3'}) · ${pingMs}ms`;
 
+    const targets = d.v14?.targets || { scan: 110, scalp: 75 };
+    const scanSt = summarizeSamples(d.v14?.samples, 'scan', targets.scan);
+    const scalpSt = summarizeSamples(d.v14?.samples, 'scalp', targets.scalp);
     const m = d.overall || {};
+    const thr = d.model?.thresholds || {};
+    const nextLearn = d.v14?.nextLearnAt ? fmtTime(d.v14.nextLearnAt) : 'هر ۶ ساعت';
+
     let html = `
-      <div class="kv"><span>صرافی و مدل کارمزد</span><b>${d.exchange || 'LBank Futures'} (کارمزد ۰٫۱۲٪ + لغزش ۰٫۰۵٪)</b></div>
-      <div class="kv"><span>دیتابیس یادگیری (D1)</span><b class="${d.db ? 'up' : 'down'}">${d.db ? 'متصل و فعال ✓' : 'متصل نیست (بایندینگ DB را اضافه کن)'}</b></div>
-      <div class="kv"><span>سیگنال‌های بسته‌شده | باز</span><b>${fa(m.n)} | ${fa(d.openCount || 0)}</b></div>
-      <div class="kv"><span>نرخ برد واقعی (Win Rate)</span><b>${fa(m.winRate, 1)}٪ (${fa(m.wins)} برد / ${fa(m.losses)} باخت)</b></div>
-      <div class="kv"><span>Profit Factor | Expectancy</span><b class="${(m.expectancyR || 0) >= 0 ? 'up' : 'down'}">${fa(m.profitFactor, 2)} | ${(m.expectancyR >= 0 ? '+' : '') + fa(m.expectancyR, 3)} R</b></div>
-      <div class="kv"><span>Sharpe | Sortino | Max DD</span><b>${fa(m.sharpe, 2)} | ${fa(m.sortino, 2)} | ${fa(m.maxDrawdownR, 2)} R</b></div>
+      <div class="kv"><span>نسخه فعال مدل | صرافی</span><b>v${d.model?.version_id || 1} (${d.model?.notes || 'Baseline'}) · ${d.exchange || 'LBank Futures'}</b></div>
+      <div class="kv"><span>وضعیت اتصال دیتابیس و فید زنده</span><b class="up">${d.db ? 'D1 متصل ✓' : 'قطع'} · ${d.feed?.klines || 'Hyperliquid'}</b></div>
+      <div class="kv"><span>چرخه خودکار یادگیری بعدی</span><b>${nextLearn} (با اعتبارسنجی Holdout + Bootstrap)</b></div>
+      ${renderProgressBlock('🎯 موتور اسکنر فرصت (15m / 1h / 4h)', scanSt, `حداقل امتیاز ${fa(thr.minConfidence || 68)} | TP1 = ${fa(thr.tp1Mult || 1.6, 2)}R`)}
+      ${renderProgressBlock('⚡ موتور اسکالپ کوتاه‌مدت (1m / 5m)', scalpSt, `حداقل امتیاز ${fa(thr.scalpMinScore || 50)} (هشدار ≥ ۵۸)`)}
+      <div class="kv"><span>سیگنال‌های رسمی بسته‌شده | باز</span><b>${fa(m.n)} (${fa(m.wins)} برد / ${fa(m.losses)} باخت) | ${fa(d.openCount || 0)} باز</b></div>
+      <div class="kv"><span>Profit Factor | Expectancy | Max DD</span><b>${fa(m.profitFactor, 2)} | ${(m.expectancyR >= 0 ? '+' : '') + fa(m.expectancyR, 3)} R | ${fa(m.maxDrawdownR, 2)} R</b></div>
     `;
 
+    // جدول تاریخچه چرخه‌های یادگیری (اثبات زنده یادگیری دوگانه)
+    if (d.v14?.runs && d.v14.runs.length) {
+      html += '<h3>تاریخچه چرخه‌های یادگیری خودکار (اسکنر و اسکالپ)</h3><table><tr><td><b>زمان</b></td><td><b>موتور</b></td><td><b>نمونه</b></td><td><b>تصمیم</b></td><td><b>توضیح</b></td></tr>';
+      d.v14.runs.forEach((r) => {
+        const mLabel = r.mode === 'scalp' ? '⚡ اسکالپ' : '🎯 اسکنر';
+        const dLabel = DEC_FA[r.decision] || r.decision;
+        html += `<tr><td>${fmtTime(r.ran_at)}</td><td>${mLabel}</td><td>${fa(r.samples_used)} (${fa(r.shadow_used)} سایه)</td><td>${dLabel}</td><td>${r.reason || '—'}</td></tr>`;
+      });
+      html += '</table>';
+    }
+
+    // تاریخچه تغییرات وزن‌ها و آستانه‌ها
+    if (d.v14?.thr && d.v14.thr.length) {
+      html += '<h3>تغییرات اعمال‌شده روی آستانه‌ها</h3><table><tr><td><b>زمان</b></td><td><b>موتور</b></td><td><b>پارامتر</b></td><td><b>قدیم ← جدید</b></td></tr>';
+      d.v14.thr.forEach((t) => {
+        html += `<tr><td>${fmtTime(t.changed_at)}</td><td>${t.mode === 'scalp' ? 'اسکالپ' : 'اسکنر'}</td><td>${t.param_key}</td><td>${t.old_value} ← <b>${t.new_value}</b></td></tr>`;
+      });
+      html += '</table>';
+    }
+
     if (d.layerAttribution && d.layerAttribution.length) {
-      html += '<h3>عملکرد لایه‌های تحلیلی (بهترین تا ضعیف‌ترین)</h3><table><tr><td><b>لایه</b></td><td><b>تعداد</b></td><td><b>نرخ برد</b></td><td><b>میانگین R</b></td></tr>';
+      html += '<h3>عملکرد لایه‌های اسکنر (بهترین تا ضعیف‌ترین)</h3><table><tr><td><b>لایه</b></td><td><b>تعداد</b></td><td><b>نرخ برد</b></td><td><b>میانگین R</b></td></tr>';
       d.layerAttribution.forEach((x) => {
         const wr = x.n ? (x.w / x.n) * 100 : 0;
         html += `<tr><td>${LAYER_FA[x.layer_name] || x.layer_name}</td><td>${fa(x.n)}</td><td>${fa(wr, 0)}٪</td><td style="color:${x.avg_r >= 0 ? 'var(--up)' : 'var(--down)'}">${fa(x.avg_r, 2)}</td></tr>`;
@@ -267,20 +349,18 @@ async function loadEngineDashboard() {
       html += '</table>';
     }
 
-    if (d.regimeMetrics && Object.keys(d.regimeMetrics).length) {
-      html += '<h3>عملکرد به تفکیک رژیم بازار</h3><table><tr><td><b>رژیم</b></td><td><b>معاملات</b></td><td><b>برد</b></td><td><b>Expectancy</b></td></tr>';
-      Object.entries(d.regimeMetrics).forEach(([reg, rm]) => {
-        html += `<tr><td>${REGIME_FA[reg] || reg}</td><td>${fa(rm.n)}</td><td>${fa(rm.winRate, 0)}٪</td><td style="color:${rm.expectancyR >= 0 ? 'var(--up)' : 'var(--down)'}">${fa(rm.expectancyR, 2)} R</td></tr>`;
-      });
-      html += '</table>';
-    }
-
     if (d.model?.weights) {
-      html += '<details class="mini"><summary>وزن فعلی لایه‌ها در رژیم‌های بازار (نسخه v' + d.model.version_id + ')</summary>';
+      html += '<details class="mini"><summary>وزن فعلی لایه‌ها در هر دو موتور (نسخه v' + d.model.version_id + ')</summary>';
       Object.entries(d.model.weights).forEach(([reg, wm]) => {
         const parts = Object.entries(wm).map(([k, v]) => `${k}:${v}`).join(' · ');
-        html += `<div class="note"><b>${REGIME_FA[reg] || reg}:</b> ${parts}</div>`;
+        html += `<div class="note"><b>[اسکنر] ${REGIME_FA[reg] || reg}:</b> ${parts}</div>`;
       });
+      if (d.model.scalpWeights) {
+        Object.entries(d.model.scalpWeights).forEach(([reg, wm]) => {
+          const parts = Object.entries(wm).map(([k, v]) => `${k}:${v}`).join(' · ');
+          html += `<div class="note"><b>[اسکالپ] ${REGIME_FA[reg] || reg}:</b> ${parts}</div>`;
+        });
+      }
       html += '</details>';
     }
     body.innerHTML = html;

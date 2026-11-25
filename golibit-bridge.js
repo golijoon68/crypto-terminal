@@ -50,7 +50,7 @@ const $ = (id) => document.getElementById(id);
 const fa = (n, d = 0) => (n == null || !Number.isFinite(Number(n)) ? '—' : Number(n).toLocaleString('fa-IR', { maximumFractionDigits: d }));
 const usd = (n) => (n == null || !Number.isFinite(Number(n)) ? '—' : '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: Number(n) >= 1 ? 2 : 5 }));
 const fmtTime = (t) => (!t ? '—' : new Date(t).toLocaleString('fa-IR', { timeZone: 'Asia/Tehran', hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }));
-const apiBase = () => ((typeof window.GL_API === 'string' && window.GL_API) || localStorage.getItem('proxy') || '').trim().replace(/\/+$/, '');
+const apiBase = () => ((typeof window.GL_API === 'string' && window.GL_API) || 'https://golbit-api.golijoon68.workers.dev').trim().replace(/\/+$/, '');
 const BN = ['https://api.binance.com', 'https://data-api.binance.vision'];
 
 async function bnJson(path) {

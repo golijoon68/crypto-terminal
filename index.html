@@ -2601,6 +2601,112 @@ function setSub(k,v){
   setInterval(feedScalpWS, 15000);
 })();
 </script>
+  <script>
+/* ===== v14.6: دستیار هوش مصنوعی جامع در تب پیام (با زیرتب مجزا از پیام به مدیر) ===== */
+(function(){
+  const tp=document.getElementById('tp-chat'), cc=document.getElementById('chatCard'), ac=document.getElementById('adminCard');
+  if(!tp||!cc||document.getElementById('aiCard')) return;
+  const L=(k,v)=>{try{if(v===undefined)return localStorage.getItem(k);if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){return null}};
+  const API=()=>((typeof GL_API!=='undefined'&&GL_API)||L('proxy')||'').trim().replace(/\/+$/,'');
+  const getKey=()=>(sessionStorage.getItem('gl_adm')||(L('gl_adm_auto')==='1'?L('gl_adm_keep'):'')||'').trim();
+  const fmtT=t=>new Date(t).toLocaleTimeString('fa-IR',{timeZone:'Asia/Tehran',hour12:false,hour:'2-digit',minute:'2-digit'});
+
+  // زیرتب‌های بالای تب «پیام»
+  const bar=mk('div','stabs'); bar.id='msgSubTabs';
+  const bAi=mk('button','on','🤖 دستیار هوشمند'), bAdm=mk('button','','💬 پیام به مدیر');
+  bar.append(bAi,bAdm);
+
+  // کارت دستیار هوشمند
+  const card=mk('div','card'); card.id='aiCard';
+  card.innerHTML=`
+    <div class="ph"><h3>🤖 دستیار هوشمند GOLBIT</h3><span id="aiMeta" class="chip up">متصل به داده زنده</span></div>
+    <div class="sub">تحلیل لحظه‌ای ارزها، بازار ایران و حباب طلا، محاسبه ریسک و حجم، وضعیت موتور یادگیری و راهنمای برنامه.</div>
+    <div class="chips" id="aiQuick" style="margin-top:8px"></div>
+    <div id="aiBox" class="chatbox"></div>
+    <div class="chatrow"><textarea id="aiIn" maxlength="700" rows="2" placeholder="هر سؤالی درباره بازار، ارزها، مدیریت ریسک یا برنامه داری بپرس..."></textarea><button class="btnx" id="aiSend">ارسال</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;gap:8px;flex-wrap:wrap">
+      <span class="sub" id="aiSt"></span>
+      <button class="btnx warn" id="aiClr" style="padding:4px 10px;font-size:11px">پاک کردن گفتگو</button>
+    </div>
+  `;
+
+  tp.prepend(card); tp.prepend(bar);
+
+  function setMode(m){
+    const isAi=(m==='ai');
+    bAi.classList.toggle('on',isAi); bAdm.classList.toggle('on',!isAi);
+    card.style.display=isAi?'':'none';
+    cc.style.display=isAi?'none':'';
+    if(ac) ac.style.display=(!isAi && L('gl_isadm')==='1')?'':'none';
+    L('gl_chat_sub',m);
+  }
+  bAi.addEventListener('click',()=>setMode('ai'));
+  bAdm.addEventListener('click',()=>setMode('admin'));
+  setMode(L('gl_chat_sub')||'ai');
+
+  // دکمه‌های پرسش سریع
+  const qBox=document.getElementById('aiQuick');
+  ['تحلیل لحظه‌ای بیت‌کوین','وضعیت دلار و حباب طلا','گزارش یادگیری و ریسک','محاسبه حجم با سرمایه من','راهنمای اشتراک و تلگرام'].forEach(q=>{
+    const b=mk('button','chip',q); b.style.cursor='pointer';
+    b.addEventListener('click',()=>{ document.getElementById('aiIn').value=q; sendAi(); });
+    qBox.append(b);
+  });
+
+  const box=document.getElementById('aiBox'), inp=document.getElementById('aiIn'), st=document.getElementById('aiSt'), btn=document.getElementById('aiSend'), meta=document.getElementById('aiMeta');
+  let hist=[]; try{hist=JSON.parse(L('gl_ai_hist')||'[]')}catch(e){hist=[]}
+
+  function render(){
+    box.replaceChildren();
+    if(!hist.length){
+      const w=mk('div','bub adm');
+      w.append(document.createTextNode('سلام 👋 من دستیار هوشمند GOLBIT هستم. می‌توانی وضعیت لحظه‌ای هر ارز (مثلاً «تحلیل سولانا»)، حباب طلا و دلار، محاسبه حجم و لوریج یا گزارش موتورهای یادگیری را از من بپرسی.'),mk('small','','دستیار هوشمند'));
+      box.append(w);
+    }
+    hist.forEach(m=>{
+      const d=mk('div','bub '+(m.role==='user'?'usr':'adm'));
+      d.append(document.createTextNode(m.content),mk('small','',(m.role==='assistant'?'🤖 دستیار · ':'')+fmtT(m.t||Date.now())));
+      box.append(d);
+    });
+    box.scrollTop=box.scrollHeight;
+  }
+  render();
+
+  function screenCtx(){
+    const rc=(()=>{try{return JSON.parse(L('rc')||'{}')}catch(e){return{}}})();
+    return {
+      sym:typeof symbol!=='undefined'?symbol:null,
+      price:typeof lastP!=='undefined'&&lastP?lastP:null,
+      paxg:typeof paxg!=='undefined'&&paxg?paxg:null,
+      rsi:document.getElementById('rsi')?.textContent||null,
+      cap:rc.rcCap||null, riskPct:rc.rcRisk||null, lev:rc.rcLev||null
+    };
+  }
+
+  let busy=false;
+  async function sendAi(){
+    const t=inp.value.trim(); if(!t||busy)return;
+    const api=API(), uid=L('gl_uid')||'';
+    if(!api||!uid){ st.textContent='اتصال به سرور آماده نیست.'; return; }
+    busy=true; btn.disabled=true; inp.value='';
+    hist.push({role:'user',content:t,t:Date.now()}); hist=hist.slice(-14); L('gl_ai_hist',JSON.stringify(hist)); render();
+    st.textContent='در حال دریافت داده زنده و تحلیل...';
+    try{
+      const hd={'Content-Type':'application/json'}; const k=getKey(); if(k) hd['X-Key']=k;
+      const r=await fetch(api+'/ai/ask',{method:'POST',headers:hd,body:JSON.stringify({uid,text:t,history:hist.slice(-9,-1).map(x=>({role:x.role,content:x.content})),ctx:screenCtx()})});
+      const d=await r.json();
+      if(!r.ok||!d.ok){ st.textContent='⚠ '+(d.error||'خطا در پاسخ‌دهی'); return; }
+      hist.push({role:'assistant',content:d.reply,t:Date.now()}); hist=hist.slice(-14); L('gl_ai_hist',JSON.stringify(hist)); render();
+      meta.textContent=d.provider||'داده زنده';
+      st.textContent=(d.limit>=900?'حالت مدیر (نامحدود)':'سهمیه باقی‌مانده امروز: '+fa(d.left)+' از '+fa(d.limit));
+    }catch(e){ st.textContent='⚠ ارتباط با سرور هوش مصنوعی برقرار نشد'; }
+    finally{ busy=false; btn.disabled=false; }
+  }
+
+  btn.addEventListener('click',sendAi);
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendAi(); } });
+  document.getElementById('aiClr').addEventListener('click',()=>{ hist=[]; L('gl_ai_hist','[]'); st.textContent=''; render(); });
+})();
+</script>
   <script type="module" src="golibit-bridge.js?v=14"></script>
 </body>
 

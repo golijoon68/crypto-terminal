@@ -232,7 +232,10 @@ function mountEngineDashboard() {
     const bRoll = document.createElement('button');
     bRoll.className = 'btnx warn'; bRoll.textContent = '↩ Rollback به نسخه قبل';
     bRoll.addEventListener('click', () => { if (confirm('مدل به نسخه قبلی برگردد؟')) adminEngineOp('/engine/rollback'); });
-    $('edActions').append(bLearn, bRoll);
+    const bSeed = document.createElement('button');
+    bSeed.className = 'btnx'; bSeed.textContent = '🌱 پر کردن تاریخچه (Seed)';
+    bSeed.addEventListener('click', () => adminEngineOp('/engine/seed?syms=BTCUSDT,ETHUSDT,SOLUSDT'));
+    $('edActions').append(bSeed, bLearn, bRoll);
   }
 
   $('edRefresh').addEventListener('click', loadEngineDashboard);

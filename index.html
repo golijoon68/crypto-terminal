@@ -172,6 +172,10 @@ h1{display:flex;align-items:center;gap:12px;line-height:1.25;min-width:0}
 h1 span{display:flex;flex-direction:column;gap:3px}
 .h1s{margin:0;letter-spacing:3px;font-size:11px}
 .conn{flex-wrap:wrap;justify-content:flex-start}
+  /* v14.7: خلوت‌سازی تب تحلیل بدون آسیب به DOM */
+#cons,#p-fund,#p-chain,#p-senti,#p-liq,#p-macro,#calib,#calibCard,
+#tp-tools .col>.card:has(#sig),
+#tp-tools .domcard:has(#tvDomBtc){display:none!important}
 </style>
 </head>
 <body>
@@ -791,7 +795,7 @@ async function loadMacro(){try{
     'شاخص‌های جایگزین رایگان. داده رسمی CPI، نرخ بهره فدرال‌رزرو و DXY نیاز به API کلیددار دارد و اینجا نیست.');
 }catch(e){failPanel('macro','دریافت داده کلان ممکن نشد')}}
 
-function loadAll(){loadMtf();loadDaily();loadFund();loadChain();loadSenti();loadMacro();loadDeriv();loadLiq()}
+function loadAll(){loadMtf();loadDaily();loadDeriv()}
 
 /* ---------- تأیید چندتایم‌فریم ---------- */
 const MTF={h1:null,h4:null,d1:null,error:false};
@@ -840,7 +844,7 @@ function logSig(sym,dir,entry,tp,sl,src,ttl,score,ctx){
   JR.push(e);saveJ();renderJournal();
   if(src!=='scan')notifyTG('⚡ 🕒 '+new Date().toLocaleTimeString('en-GB',{timeZone:'Asia/Tehran'})+' | '+nm(sym)+' '+(dir>0?'LONG':'SHORT')+' ('+(src==='scalp'?'اسکالپ':'اجماع')+') | ورود '+usd(entry)+' | SL '+usd(sl)+' | TP '+usd(tp)+(e.score?' | قدرت '+e.score:''),src==='scalp'?{sym,side:dir}:undefined);
 }
-function maybeLog(dir,entry,tp,sl){logSig(symbol,dir,entry,tp,sl,'cons')}
+function maybeLog(dir,entry,tp,sl){logSig(symbol,dir,entry,tp,sl,'cons')}function maybeLog(){}
 function evalJournal(sym,p){
   let ch=false;
   JR.forEach(e=>{
@@ -1202,12 +1206,11 @@ async function loadDom(){try{
   {const rl=DOM.h.find(x=>now-x.t>=150*60000&&now-x.t<=260*60000);DOM.ctxL=rl?(u-rl.u<=-.08?1:u-rl.u>=.08?-1:0):0} /* فقط برای موتور؛ نمایش با نمودار TradingView است */
 }catch(e){}}
 let domMounted=false;
-function mountDomCharts(){
-  if(domMounted)return;
-  const one=(id,sym)=>{try{new TradingView.widget({container_id:id,autosize:true,symbol:sym,interval:'60',theme:'dark',style:'2',locale:'fa_IR',timezone:'Asia/Tehran',toolbar_bg:'#0f1626',hide_side_toolbar:true,allow_symbol_change:false,hide_top_toolbar:false,save_image:false})}catch(e){$(id).textContent='نمودار دامیننس بارگذاری نشد.'}};
-  if(window.TradingView){domMounted=true;one('tvDomBtc','CRYPTOCAP:BTC.D');one('tvDomUsdt','CRYPTOCAP:USDT.D');return}
-  ['tvDomBtc','tvDomUsdt'].forEach(id=>$(id).textContent='در حال بارگذاری نمودار...');
-  loadTV().then(ok=>{if(ok)mountDomCharts();else['tvDomBtc','tvDomUsdt'].forEach(id=>$(id).textContent='نمودار دامیننس بارگذاری نشد (اینترنت/فیلترشکن را بررسی کن).')});
+function mountDomCharts(){if(domMounted)return;
+const one=(id,sym)=>{try{new TradingView.widget({container_id:id,autosize:true,symbol:sym,interval:'60',theme:'dark',style:'2',locale:'fa_IR',timezone:'Asia/Tehran',toolbar_bg:'#0f1626',hide_side_toolbar:true,allow_symbol_change:false,hide_top_toolbar:false,save_image:false})}catch(e){$(id).textContent='نمودار دامیننس بارگذاری نشد.'}};
+if(window.TradingView){domMounted=true;one('tvDomUsdt','CRYPTOCAP:USDT.D');return}
+$('tvDomUsdt').textContent='در حال بارگذاری نمودار...';
+loadTV().then(ok=>{if(ok)mountDomCharts();else $('tvDomUsdt').textContent='نمودار دامیننس بارگذاری نشد (اینترنت/فیلترشکن را بررسی کن).'});
 }
 
 /* ---------- اخبار ---------- */

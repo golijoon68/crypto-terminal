@@ -1810,15 +1810,27 @@ function rtCollect(){
 }
 function rtDraw(k){
   const box=$('rt-'+k);if(!box)return;box.replaceChildren();
-  const arr=Object.values(RT.data[k]).sort((p,q)=>(q.ok-p.ok)||q.score-p.score).slice(0,10),now=Date.now();
+  const now=Date.now(),ttl=30*60000,map=RT.data[k]||{};
+  Object.keys(map).forEach(id=>{const o=map[id];if(!o||now-(o.seen||o.t||0)>ttl)delete map[id]});
+  const bySym={};
+  Object.values(map).forEach(o=>{
+    const ts=o.seen||o.t||0,cur=bySym[o.sym];
+    if(!cur||ts>(cur.seen||cur.t||0)||(ts===(cur.seen||cur.t||0)&&o.score>cur.score))bySym[o.sym]=o;
+  });
+  const arr=Object.values(bySym).sort((p,q)=>(q.ok-p.ok)||((q.seen||q.t||0)-(p.seen||p.t||0))||q.score-p.score).slice(0,10);
   $('rtb-'+k).textContent='⭐ پیشنهادهای اخیر ('+fa(arr.length)+')';
   if(!arr.length){box.append(mk('div','sub','هنوز پیشنهادی ثبت نشده. پیشنهادهای نزدیک به سیگنال تا ۳۰ دقیقه اینجا می‌مانند.'));return}
+  const fmtT=ms=>new Date(ms).toLocaleTimeString('fa-IR',{timeZone:'Asia/Tehran',hour12:false});
   arr.forEach(o=>{
     const dt=document.createElement('details');dt.className='rcI';const sm=document.createElement('summary');
+    const ts=o.seen||o.t||now,sec=Math.max(0,Math.floor((now-ts)/1000));
+    const ageTxt=sec<45?'الان':fa(Math.max(1,Math.round(sec/60)))+' دقیقه پیش';
     sm.append(mk('span','n',nm(o.sym)+(o.dir>0?' ▲ LONG':' ▼ SHORT')),chip(fa(o.score),o.dir>0?'up':'down'),chip(o.ok?'✓ معتبر بود':'👀 مشاهده',o.ok?'up':'w'),
-      mk('span','age',fa(Math.max(0,Math.round((now-o.seen)/60000)))+' دقیقه پیش · '+new Date(o.t).toLocaleTimeString('fa-IR',{timeZone:'Asia/Tehran',hour12:false})));
+      mk('span','age',ageTxt+' · '+fmtT(ts)));
     dt.append(sm);
     const add=(a,b,c)=>{const r=mk('div','kv');r.append(mk('span','',a),mk('b',c||'',b));dt.append(r)};
+    add('آخرین تأیید',fmtT(ts));
+    if(o.t&&o.seen&&Math.abs(o.seen-o.t)>=60000)add('اولین مشاهده',fmtT(o.t));
     add('ورود',usd(o.s.entry));add('SL',usd(o.s.sl)+' ('+pcT(o.s.sl,o.s.entry)+')','down');add('TP1',usd(o.s.tp1)+' ('+pcT(o.s.tp1,o.s.entry)+')','up');
     if(o.s.tp2)add('TP2',usd(o.s.tp2),'up');
     if(!o.ok&&o.why)add('چرا هشدار نشد',String(o.why).slice(0,90));

@@ -176,6 +176,7 @@ h1 span{display:flex;flex-direction:column;gap:3px}
 #cons,#p-fund,#p-chain,#p-senti,#p-liq,#p-macro,#calib,#calibCard,
 #tp-tools .col>.card:has(#sig),
 #tp-tools .domcard:has(#tvDomBtc){display:none!important}
+  #tp-tools .domcard:has(#tvDomUsdt){grid-column:1/-1;width:100%}
 </style>
 </head>
 <body>
@@ -2708,6 +2709,44 @@ function setSub(k,v){
   btn.addEventListener('click',sendAi);
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); sendAi(); } });
   document.getElementById('aiClr').addEventListener('click',()=>{ hist=[]; L('gl_ai_hist','[]'); st.textContent=''; render(); });
+})();
+</script>
+  <script>
+/* ===== v14.8: انتقال باکس آمار دفترچه و داشبورد یادگیری به زیر نمودار USDT.D ===== */
+(function(){
+  const findBox=(el,tp)=>{
+    if(!el)return null;
+    const c=el.closest('.card');
+    if(c&&c!==tp)return c;
+    let cur=el;
+    while(cur&&cur.parentElement&&cur.parentElement!==tp&&!cur.parentElement.classList.contains('col'))cur=cur.parentElement;
+    return cur===tp?null:cur;
+  };
+  function place(){
+    const tp=document.getElementById('tp-tools'), usdt=document.getElementById('tvDomUsdt');
+    if(!tp||!usdt)return false;
+    const domCard=usdt.closest('.domcard')||usdt.closest('.card');
+    let anchor=usdt.closest('.card')||domCard;
+    if(domCard&&anchor===domCard){
+      const p=domCard.parentElement;
+      if(p&&p!==tp&&!p.classList.contains('col')&&p.children.length<=2&&p.querySelector('#tvDomBtc'))anchor=p;
+    }
+    if(!anchor)return false;
+    const jEl=document.getElementById('journal')||[...tp.querySelectorAll('.card')].find(c=>/دفترچه/.test(c.querySelector('h3,h4')?.textContent||''));
+    const edEl=document.getElementById('edActions')||[...tp.querySelectorAll('.card')].find(c=>/داشبورد یادگیری/.test(c.querySelector('h3,h4')?.textContent||''));
+    const jBox=findBox(jEl,tp), edBox=findBox(edEl,tp);
+    if(jBox&&jBox!==anchor&&anchor.nextElementSibling!==jBox)anchor.after(jBox);
+    const prev=(jBox&&jBox!==anchor)?jBox:anchor;
+    if(edBox&&edBox!==anchor&&edBox!==jBox&&prev.nextElementSibling!==edBox)prev.after(edBox);
+    return !!(jBox&&edBox);
+  }
+  let done=place();
+  if(!done){
+    const iv=setInterval(()=>{if(place()){done=true;clearInterval(iv)}},400);
+    setTimeout(()=>clearInterval(iv),15000);
+    const onClk=()=>{if(done)return;setTimeout(()=>{if(place()){done=true;document.removeEventListener('click',onClk)}},250)};
+    document.addEventListener('click',onClk);
+  }
 })();
 </script>
   <script type="module" src="golibit-bridge.js?v=14"></script>

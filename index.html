@@ -6,7 +6,7 @@
 <meta name="referrer" content="no-referrer">
 <meta name="gl-version" content="v11-2026-11-22">
 <script>try{if(top!==self)top.location=self.location}catch(e){document.documentElement.style.display="none"}</script>
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>GOLBIT</title>
 <meta name="theme-color" content="#070b14">
 <meta name="mobile-web-app-capable" content="yes">
@@ -93,8 +93,8 @@ footer{text-align:center;font-size:11px;color:var(--mute);margin-top:14px;line-h
 .chk{font-size:12px;line-height:1.9}.chk.w{color:var(--gold)}.chk.g{color:var(--up)}
 .btnrow{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .nw{padding:8px 0;border-bottom:1px dashed var(--line);font-size:13px;line-height:1.8}.nw small{display:block;color:var(--mute);font-size:11px}
-#toasts{position:fixed;top:10px;left:10px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
-.toast{pointer-events:auto;cursor:pointer;background:#0f1626;border:2px solid var(--accent);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 30px rgba(0,0,0,.6);animation:tin .3s}
+#toasts{position:fixed;top:calc(env(safe-area-inset-top, 0px) + 12px);left:10px;right:10px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none}
+.toast{pointer-events:auto;cursor:pointer;background:#0f1626;border:2px solid var(--accent);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:4px;box-shadow:0 8px 30px rgba(0,0,0,.6);animation:tin .3s;max-height:calc(100dvh - env(safe-area-inset-top, 0px) - 24px);overflow-y:auto;touch-action:manipulation}
 .toast.long{border-color:var(--up)}.toast.short{border-color:var(--down)}
 .feedwarn{font-size:11px;color:#ffb3c1;background:#2e1019;border:1px solid #8a2339;border-radius:8px;padding:5px 10px}
 .chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--line);color:var(--mute);background:#0a1120;white-space:nowrap}

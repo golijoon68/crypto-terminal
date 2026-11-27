@@ -1166,7 +1166,7 @@ function evalCoin(sym,D,btcBias){
   /* خانوادهٔ مستقل از قیمت: حجم، دلتای تیکر (جریان سفارش اجراشده)، بیت‌کوین، فاندینگ */
   let ns=0,indep=0;
   const vAvg=a.slice(-21,-1).reduce((t,x)=>t+x.v,0)/20,vr=vAvg>0?a[n].v/vAvg:0;
-  if(vr>=1.2){ns+=10;indep++;o.reasons.push('حجم بالاتر از میانگین ('+fa(vr,1)+' برابر)')}
+  if(vr>=1.2&&(a[n].c-a[n].o)*d>0){ns+=10;indep++;o.reasons.push('حجم بالاتر از میانگین ('+fa(vr,1)+' برابر)')}
   else if(vr<.6){ns-=5;o.warns.push('حجم ضعیف')}
   const td=takerDelta(a,8);
   if(td!=null){if(td*d>=.08){ns+=15;indep++;o.reasons.push('دلتای خریدار/فروشنده‌ی تهاجمی هم‌جهت ('+pct(td*100)+')')}else if(td*d<=-.08){ns-=15;o.warns.push('جریان سفارش اجراشده خلاف جهت ('+pct(td*100)+')')}}

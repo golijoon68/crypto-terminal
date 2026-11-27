@@ -250,6 +250,7 @@ h1 span{display:flex;flex-direction:column;gap:3px}
       <option value="OPUSDT">آپتیمیزم OP</option>
       <option value="INJUSDT">اینجکتیو INJ</option>
       <option value="AAVEUSDT">آوه AAVE</option>
+      <option value="ZECUSDT">زیکش ZEC</option>
       <option value="PAXGUSDT">طلا PAXG</option>
     </select>
     <div class="tf" id="tf">
@@ -605,7 +606,7 @@ const PANELS=[
 ];
 const MULT={short:[3,1.5],swing:[2.5,1],senti:[2,1]}; // [TP,SL] ضریب ATR
 const HNAME={short:'کوتاه‌مدت (ATR تایم‌فریم فعلی)',swing:'سوئینگ (ATR روزانه)',senti:'سوئینگ (ATR روزانه)'};
-const CG={BTCUSDT:'bitcoin',ETHUSDT:'ethereum',SOLUSDT:'solana',BNBUSDT:'binancecoin',XRPUSDT:'ripple',DOGEUSDT:'dogecoin',ADAUSDT:'cardano',AVAXUSDT:'avalanche-2',LINKUSDT:'chainlink',DOTUSDT:'polkadot',LTCUSDT:'litecoin',TRXUSDT:'tron',ATOMUSDT:'cosmos',NEARUSDT:'near',SUIUSDT:'sui',APTUSDT:'aptos',ARBUSDT:'arbitrum',OPUSDT:'optimism',INJUSDT:'injective-protocol',AAVEUSDT:'aave',PAXGUSDT:'pax-gold'};
+const CG={BTCUSDT:'bitcoin',ETHUSDT:'ethereum',SOLUSDT:'solana',BNBUSDT:'binancecoin',XRPUSDT:'ripple',DOGEUSDT:'dogecoin',ADAUSDT:'cardano',AVAXUSDT:'avalanche-2',LINKUSDT:'chainlink',DOTUSDT:'polkadot',LTCUSDT:'litecoin',TRXUSDT:'tron',ATOMUSDT:'cosmos',NEARUSDT:'near',SUIUSDT:'sui',APTUSDT:'aptos',ARBUSDT:'arbitrum',OPUSDT:'optimism',INJUSDT:'injective-protocol',AAVEUSDT:'aave',ZECUSDT:'zcash',PAXGUSDT:'pax-gold'};
 const PS={};let chg24=0,qv24=0,dAtr=null,lastRender=0;
 const pct=n=>Number.isFinite(n)?(n>=0?'+':'')+fa(n,2)+'٪':'—';
 const bn=n=>fa(n/1e9,2)+' میلیارد $';
@@ -984,9 +985,9 @@ function buildExtras(){
 }
 
 /* ---------- اسکنر فرصت معامله ---------- */
-const UNIV=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','LTCUSDT','TRXUSDT','ATOMUSDT','NEARUSDT','SUIUSDT','APTUSDT','ARBUSDT','OPUSDT','INJUSDT','AAVEUSDT'];
+const UNIV=['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','DOGEUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','DOTUSDT','LTCUSDT','TRXUSDT','ATOMUSDT','NEARUSDT','SUIUSDT','APTUSDT','ARBUSDT','OPUSDT','INJUSDT','AAVEUSDT','ZECUSDT'];
 const pickSel=(k,d,m)=>{try{const a=(ls.get(k)||'').split(',').filter(x=>UNIV.includes(x));return a.length?a.slice(0,m):d}catch(e){return d}};
-const SCAN=pickSel('sel_scan',['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','NEARUSDT','SUIUSDT'],15);
+const SCAN=pickSel('sel_scan',['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','ADAUSDT','AVAXUSDT','LINKUSDT','NEARUSDT','SUIUSDT','ZECUSDT'],16);
 const TAGS=[[/رنج/,'↔ رنج'],[/رژیم/,'↔ بازار رنج'],[/اشباع/,'🔥 اشباع'],[/حد ضرر منطقی|ورود دیر/,'📏 SL دور'],[/مقاومت|حمایت|سطح/,'🧱 نزدیک سطح'],[/مستقل/,'🔗 بدون تأیید'],[/کارمزد/,'💸 کارمزد>حرکت'],[/ریسک به ریوارد/,'⚖ RR کم'],[/داده/,'⚠ بدون داده'],[/نوسان خیلی کم/,'😴 نوسان کم'],[/نوسان بیش/,'🌪 نوسان زیاد'],[/پریده|تعقیب/,'⚡ تعقیب قیمت'],[/روند/,'⇅ روند ناهمسو'],[/قدرت سیگنال|امتیاز/,'📉 قدرت کم'],[/اسپرد/,'↔ اسپرد'],[/لغزش/,'🌊 لغزش'],[/قفل/,'⛔ قفل ریسک'],[/تازگی/,'⏳ داده کهنه'],[/جهش/,'⚡ جهش'],[/نوسان ۵دقیقه/,'🌪 نوسان'],[/جریان سفارش مخالف/,'↯ جریان مخالف'],[/مرحله/,'…']];
 function tagOf(r){if(!r)return['✓ تأیید','up'];for(const [re,t] of TAGS)if(re.test(r))return[t,'w'];return[String(r).slice(0,14),'w']}
 const chip=(t,c)=>mk('span','chip '+(c||''),t);
@@ -1349,7 +1350,7 @@ function scalpTick(){
 /* ======================================================================
    اسکالپ هوشمند چندارزی: همهٔ ارزها هم‌زمان با یک اتصال زنده زیر نظرند
    ====================================================================== */
-const SCALP_COINS=pickSel('sel_scalp',['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','LINKUSDT'],15);
+const SCALP_COINS=pickSel('sel_scalp',['BTCUSDT','ETHUSDT','SOLUSDT','BNBUSDT','XRPUSDT','LINKUSDT','ZECUSDT'],16);
 const SA={on:ls.get('saOn')!=='0',c:{},ws:null,ep:0,retry:0,tm:null,idx:0,up:false,focus:null,kI:0,lI:0,mI:0,jt:{},lq:null,lqEp:0,lqTm:null,ts:0};
 function saCoin(s){return SA.c[s]||(SA.c[s]={FL:{trades:[],bid:null,ask:null,bids:[],asks:[],bt:0,dt:0,oi:[],k1:null,k5:null,res:null},DV:{fr:null,r:null},MTF:{h1:null,h4:null,d1:null,error:false},LQ:{long:[],short:[],ok:false},res:null})}
 function saEval(sym){

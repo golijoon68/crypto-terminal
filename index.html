@@ -2505,7 +2505,7 @@ function setSub(k,v){
     }
 
     const stEl=document.getElementById('syncSt');
-    if(stEl) stEl.textContent=`✓ همگام شد (${fmtT(now)}) · دامیننس: ${fa((S.dom||[]).length)} نقطه · دفترچه: ${fa((S.journal||[]).length)}`;
+    if(stEl) stEl.textContent=`✓ همگام شد (${fmtT(now)}) · دامیننس: ${fa((S.dom||[]).length)} · دفترچه: ${fa((S.journal||[]).length)} · هشدارها: ${fa((S.ahist||[]).length)}`;
   }
 
   async function syncNow(pushSig, forcePost){
@@ -2524,7 +2524,17 @@ function setSub(k,v){
         prefs:readPrefs(),
         pushSig:pushSig||null
       };
-      const hash=JSON.stringify([payload.dom.length,payload.journal.length,Object.keys(payload.recent.scalp||{}).length,Object.keys(payload.recent.scanner||{}).length,payload.prefs.ts]);
+      const hash=JSON.stringify([
+        payload.dom?.length||0,
+        payload.dom?.[payload.dom.length-1]||null,
+        payload.journal?.length||0,
+        payload.journal?.[payload.journal.length-1]||null,
+        payload.ahist?.length||0,
+        payload.ahist?.[0]||null,
+        payload.ahist?.[payload.ahist.length-1]||null,
+        payload.recent,
+        payload.prefs
+      ]);
       const needPost=!!pushSig || forcePost || hash!==lastSnapHash;
       const res=needPost
         ? await fetch(api+'/admin/sync',{method:'POST',headers:{'Content-Type':'application/json','X-Key':k},body:JSON.stringify(payload)})
@@ -2548,7 +2558,7 @@ function setSub(k,v){
     const origFA=fireAlert;
     fireAlert=function(kind,sym,dir,score,s){
       const r=origFA.apply(this,arguments);
-      if(!remoteFiring && getKey() && (kind==='scan'||(kind==='scalp'&&score>=65))){
+      if(!remoteFiring && getKey() && (kind==='scan'||kind==='gold'||(kind==='scalp'&&score>=65))){
         syncNow({ id:kind+'_'+sym+'_'+dir+'_'+Math.floor(Date.now()/60000), kind, sym, dir, score, s, dev:myDev }, true);
       }
       return r;
@@ -2561,7 +2571,7 @@ function setSub(k,v){
     const c=mk('div','card'); c.id='adminSyncCard'; c.style.marginBottom='12px';
     c.innerHTML=`
       <div class="ph"><h3>🔄 همگام‌سازی خودکار دستگاه‌های مدیر</h3><span class="chip up">D1 Sync</span></div>
-      <div class="sub">اطلاعات دامیننس، دفترچه، پیشنهادهای اخیر، تنظیمات و سیگنال‌های زنده را بین سیستم‌ها و گوشی تو یکپارچه می‌کند (دستگاه پُرداده به کم‌داده می‌دهد).</div>
+      <div class="sub">اطلاعات دامیننس، دفترچه، تاریخچه هشدارها، پیشنهادهای اخیر، تنظیمات و سیگنال‌های زنده را بین سیستم‌ها و گوشی تو یکپارچه می‌کند (دستگاه پُرداده به کم‌داده می‌دهد).</div>
       <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin:10px 0;cursor:pointer">
         <input type="checkbox" id="admAutoChk" ${L('gl_adm_auto')==='1'?'checked':''}>
         ذخیره رمز مدیر روی این دستگاه (همگام‌سازی خودکار هنگام باز شدن برنامه)

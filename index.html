@@ -2425,13 +2425,12 @@ function setSub(k,v){
   function readPrefs(){
     const obj={
       sel_scan:L('sel_scan')||'', sel_scalp:L('sel_scalp')||'',
-      risk:L('risk')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1'
+      risk:L('risk')||'', rc:L('rc')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1'
     };
     const raw=JSON.stringify(obj);
     if(L('gl_prefs_snap')!==raw){ L('gl_prefs_snap',raw); L('gl_prefs_ts',String(Date.now())); }
     return { ts: +(L('gl_prefs_ts')||0), ...obj };
   }
-
   function applyState(S){
     if(!S) return;
     lastTs=Math.max(lastTs, S.updatedAt||0);
@@ -2479,14 +2478,26 @@ function setSub(k,v){
       if(ch){ L('recent2',JSON.stringify(RT.data)); if(typeof rtDraw==='function'){rtDraw('scalp');rtDraw('scanner');} }
     }
 
-    // ۴) تاریخچه هشدارها
-    if(Array.isArray(S.ahist) && S.ahist.length){ L('ahist',JSON.stringify(S.ahist.slice(0,40))); }
+   // ۴) ادغام هوشمند تاریخچه هشدارها (حفظ جدیدترین‌ها بدون تکرار)
+    if(Array.isArray(S.ahist) && S.ahist.length){
+      let cur=[]; try{ cur=JSON.parse(L('ahist')||'[]'); }catch(_){}
+      const seen=new Set(), merged=[];
+      [...S.ahist, ...(Array.isArray(cur)?cur:[])].forEach(x=>{
+        if(!x) return;
+        const k=typeof x==='string'?x:JSON.stringify([x.t||x.ts||0, x.sym||'', x.dir||x.side||'', x.kind||x.src||'', x.txt||x.msg||'']);
+        if(!seen.has(k)){ seen.add(k); merged.push(x); }
+      });
+      if(merged.length && merged[0] && typeof merged[0]==='object' && (merged[0].t||merged[0].ts)){
+        merged.sort((a,b)=>(b.t||b.ts||0)-(a.t||a.ts||0));
+      }
+      L('ahist',JSON.stringify(merged.slice(0,40)));
+    }
 
-    // ۵) همگام‌سازی تنظیمات (ارزها، ریسک، وزن‌ها)
+    // ۵) همگام‌سازی تنظیمات (ارزها، ریسک، ماشین‌حساب، وزن‌ها)
     if(S.prefs && Number(S.prefs.ts) > +(L('gl_prefs_ts')||0)){
       const oldScan=L('sel_scan')||'', oldScalp=L('sel_scalp')||'';
-      ['sel_scan','sel_scalp','risk','w2','scalpCost','saOn'].forEach(k=>{ if(S.prefs[k]!==undefined&&S.prefs[k]!=='') L(k,String(S.prefs[k])); });
-      const snap={ sel_scan:L('sel_scan')||'', sel_scalp:L('sel_scalp')||'', risk:L('risk')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1' };
+      ['sel_scan','sel_scalp','risk','rc','w2','scalpCost','saOn'].forEach(k=>{ if(S.prefs[k]!==undefined&&S.prefs[k]!=='') L(k,String(S.prefs[k])); });
+      const snap={ sel_scan:L('sel_scan')||'', sel_scalp:L('sel_scalp')||'', risk:L('risk')||'', rc:L('rc')||'', w2:L('w2')||'', scalpCost:L('scalpCost')||'', saOn:L('saOn')??'1' };
       L('gl_prefs_snap',JSON.stringify(snap));
       L('gl_prefs_ts',String(S.prefs.ts));
       if((S.prefs.sel_scan&&S.prefs.sel_scan!==oldScan)||(S.prefs.sel_scalp&&S.prefs.sel_scalp!==oldScalp)){

@@ -1074,23 +1074,131 @@ function initDashAccordion() {
     }
   }
 
-  let obsTm = null;
-  const scanAll = () => {
-    dash.querySelectorAll(':scope > .card').forEach(wrapCard);
-    const bar = $('dashAccBar'), ev = $('evLogCard');
-    if (bar && dash.firstElementChild !== bar) dash.prepend(bar);
-    if (bar && ev && bar.nextElementSibling !== ev) bar.after(ev);
-  };
+function getDashPriority(el) {
+    if (!el) return 500;
+    if (el.id === 'dashAccBar') return 0;
+    if (el.id === 'evLogCard') return 10;
+    if (el.id === 'adminSyncCard') return 50;
+    const hd = el.querySelector(':scope > .dash-hd, :scope > summary, :scope > .ph, :scope > h2, :scope > h3');
+    const t = (hd ? hd.textContent : el.textContent || '').trim();
+    if ((t === 'ورود مدیر' || t === 'خروج مدیر') || (!el.classList.contains('card') && (t.includes('ورود مدیر') || t.includes('خروج مدیر')))) return 999;
+    if (t.includes('مرکز رویداد')) return 10;
+    if (t.includes('تاریخچه هشدار')) return 20;
+    if (t.includes('ارزهای موتور') || t.includes('انتخاب ارز')) return 30;
+    if (t.includes('تلگرام')) return 40;
+    if (t.includes('همگام')) return 50;
+    if (t.includes('تنظیمات') || t.includes('اتصال ایران')) return 60;
+    if (t.includes('وضعیت سیستم')) return 70;
+    if (t.includes('ظاهر')) return 80;
+    if (t.includes('حساب')) return 90;
+    if (t.includes('کاربران موقت')) return 100;
+    return 500;
+  }
 
-  scanAll();
+  let obsTm = null;
   const obs = new MutationObserver(() => {
     clearTimeout(obsTm);
     obsTm = setTimeout(scanAll, 120);
   });
-  obs.observe(dash, { childList: true, subtree: true });
+
+  function scanAll() {
+    obs.disconnect();
+    try {
+      dash.querySelectorAll(':scope > .card').forEach(wrapCard);
+      const kids = [...dash.children];
+      const sorted = [...kids].sort((a, b) => getDashPriority(a) - getDashPriority(b));
+      if (sorted.some((el, i) => el !== kids[i])) {
+        sorted.forEach((el) => dash.appendChild(el));
+      }
+    } finally {
+      obs.observe(dash, { childList: true, subtree: true });
+    }
+  }
+
+  scanAll();
+}
+
+/* ---------- ۵. ماندگاری وضعیت تمام فلش‌ها و کادرهای کشویی (<details>) در کل برنامه ---------- */
+function initPersistentDetails() {
+  if (window.__glPersistDetails) return;
+  window.__glPersistDetails = true;
+
+  const openMap = new Map();
+  const syncing = new WeakSet();
+  const SYM_RE = /\b(BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|LINK|NEAR|SUI|TRX|LTC|INJ|AAVE|ZEC|PAXG)(?:USDT)?\b/;
+
+  function detailsKey(d) {
+    if (d.id) return 'id:' + d.id;
+    const host = d.closest('[id]');
+    const hostId = host ? host.id : 'root';
+    const sum = d.querySelector(':scope > summary');
+    const raw = (sum ? sum.textContent : '').trim();
+
+    // اگر تیتر کشویی با نام ارز شروع شود (مثل ردیف‌های اسکنر/اسکالپ)، کلید روی همان ارز قفل می‌شود
+    const leadCoin = raw.match(/^[^A-Za-z\u0600-\u06FF]*(BTC|ETH|SOL|BNB|XRP|ADA|DOGE|AVAX|LINK|NEAR|SUI|TRX|LTC|INJ|AAVE|ZEC|PAXG)(?:USDT)?\b/);
+    if (leadCoin) return `${hostId}|coin:${leadCoin[1]}`;
+
+    // حذف اعداد، قیمت‌ها و آیکون‌های متغیر تا با آپدیت قیمت یا تعداد ارز کلید عوض نشود
+    const norm = raw
+      .replace(/\$[\d.,]+/g, '')
+      .replace(/[0-9۰-۹٠-٩.,:%+\-\/]+/g, '')
+      .replace(/[🟢🔴🟡🟠⚪⚫▲▼↔⏸⚠✓✕▾▸◄►]/g, '')
+      .replace(/\(\s*\)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 64);
+
+    // اگر چند کشویی همنام در یک کادر بود، نماد ارز را از ردیف والد بگیر
+    let tag = '';
+    if (host && host.querySelectorAll('details').length > 1 && !SYM_RE.test(norm)) {
+      const row = d.parentElement && d.parentElement !== host ? d.parentElement : null;
+      if (row) {
+        tag = row.getAttribute('data-sym') || (row.textContent || '').match(SYM_RE)?.[1] || '';
+      }
+    }
+    return `${hostId}|${tag}|${norm}`;
+  }
+
+  document.addEventListener('toggle', (e) => {
+    const d = e.target;
+    if (!d || d.tagName !== 'DETAILS') return;
+    if (syncing.has(d)) {
+      syncing.delete(d);
+      return;
+    }
+    const k = detailsKey(d);
+    if (k) openMap.set(k, d.open);
+  }, true);
+
+  function restoreIn(root) {
+    if (!root || !openMap.size) return;
+    const list = root.tagName === 'DETAILS' ? [root] : root.querySelectorAll('details');
+    list.forEach((d) => {
+      const k = detailsKey(d);
+      if (!openMap.has(k)) return;
+      const want = openMap.get(k);
+      if (d.open !== want) {
+        syncing.add(d);
+        d.open = want;
+        setTimeout(() => syncing.delete(d), 0);
+      }
+    });
+  }
+
+  const mo = new MutationObserver((muts) => {
+    if (!openMap.size) return;
+    for (const m of muts) {
+      if (!m.addedNodes || !m.addedNodes.length) continue;
+      m.addedNodes.forEach((n) => {
+        if (n.nodeType === 1) restoreIn(n);
+      });
+    }
+  });
+  mo.observe(document.body, { childList: true, subtree: true });
 }
 
 window.addEventListener('DOMContentLoaded', () => {
+  initPersistentDetails();
   mountQuantCard();
   mountEngineDashboard();
   mountEventLogCard();

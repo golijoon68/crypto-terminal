@@ -744,9 +744,357 @@ async function runLiveWalkForward() {
   }
 }
 
+/* ---------- ۳. مرکز رویدادها، علت نبود سیگنال و ثبت خطاها (در تب پنل) ---------- */
+const EV_KEY = 'gl_evlog_v1';
+let evLogs = (() => { try { return JSON.parse(localStorage.getItem(EV_KEY) || '[]'); } catch (_) { return []; } })();
+const evRecentMap = new Map();
+
+function pushSysEvent(level, title, detail = '') {
+  const dedupKey = `${level}|${title}|${detail}`;
+  const now = Date.now();
+  if (evRecentMap.has(dedupKey) && now - evRecentMap.get(dedupKey) < 900000) return; // جلوگیری از تکرار زیر ۱۵ دقیقه
+  evRecentMap.set(dedupKey, now);
+  evLogs.unshift({ t: now, level, title, detail: String(detail || '').slice(0, 220) });
+  evLogs = evLogs.slice(0, 60);
+  try { localStorage.setItem(EV_KEY, JSON.stringify(evLogs)); } catch (_) {}
+  renderEventLogCard();
+}
+
+function getMarketSessionInfo(now = new Date()) {
+  try {
+    const ny = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+    }).formatToParts(now);
+    const g = (arr, k) => arr.find((p) => p.type === k)?.value;
+    const wd = g(ny, 'weekday'), h = Number(g(ny, 'hour')), m = Number(g(ny, 'minute'));
+    const mins = h * 60 + m;
+
+    const ir = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Tehran', hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+    }).formatToParts(now);
+    const irMins = Number(g(ir, 'hour')) * 60 + Number(g(ir, 'minute'));
+
+    const isWeekend = wd === 'Sat' || (wd === 'Sun' && h < 18) || (wd === 'Fri' && h >= 17);
+    if (isWeekend) {
+      return {
+        chip: '🟡 تعطیلی آخر هفته',
+        cls: 'w',
+        text: 'بازارهای جهانی (بورس آمریکا، طلا و CME) تعطیل هستند (جمعه شب تا دوشنبه بامداد). نقدینگی پایین است و احتمال بازار رنج و نبود سیگنال بالاست.',
+      };
+    }
+    if (isUsOpenLock(now)) {
+      return {
+        chip: '🔒 قفل بازگشایی آمریکا',
+        cls: 'down',
+        text: 'قفل ایمنی ۵ دقیقه قبل تا ۵ دقیقه بعد از بازگشایی بورس نیویورک (09:25 تا 09:35 NY) فعال است؛ صدور سیگنال جدید موقتاً متوقف شده.',
+      };
+    }
+    if (irMins >= 200 && irMins <= 220) {
+      return {
+        chip: '🕒 بسته‌شدن کندل روزانه',
+        cls: 'w',
+        text: 'بازهٔ بسته شدن کندل روزانه و صفر شدن VWAP (۰۳:۲۰ تا ۰۳:۴۰ تهران)؛ احتمال نوسان کوتاه و اسپرد لحظه‌ای.',
+      };
+    }
+    return {
+      chip: '🟢 بازار جهانی باز',
+      cls: 'up',
+      text: 'بازارهای جهانی در روز کاری هستند و قفل زمانی فعال نیست.',
+    };
+  } catch (_) {
+    return { chip: 'وضعیت نامشخص', cls: '', text: 'محاسبهٔ تقویم بازار ممکن نشد.' };
+  }
+}
+
+function collectNoSignalReasons() {
+  const lines = [];
+  const ses = getMarketSessionInfo();
+  lines.push({ level: ses.cls === 'down' ? 'err' : ses.cls === 'w' ? 'warn' : 'ok', text: ses.text });
+
+  // قفل ریسک
+  try {
+    if (typeof riskState === 'function') {
+      const rk = riskState();
+      if (rk && rk.locked) lines.push({ level: 'err', text: 'قفل ریسک فعال است: ' + rk.reason });
+    }
+  } catch (_) {}
+
+  // اتصال زنده وب‌سوکت
+  const dot = $('dot');
+  if (dot && !dot.classList.contains('on')) {
+    lines.push({ level: 'err', text: 'اتصال لحظه‌ای WebSocket قطع است: ' + ($('status')?.textContent || 'قطع') });
+  }
+
+  // شلوغی بیت‌کوین
+  if (qBtcLs != null && qBtcLs >= 2.3) {
+    lines.push({ level: 'warn', text: `نسبت لانگ/شورت بیت‌کوین بالاست (${qBtcLs.toFixed(2)})؛ جریمه/فیلتر شلوغی فعال شده است.` });
+  }
+
+  // خلاصه علت نبود سیگنال در اسکنر
+  try {
+    if (typeof SC !== 'undefined' && SC) {
+      if (SC.err) lines.push({ level: 'err', text: 'خطای اسکنر: ' + SC.err });
+      else if (Array.isArray(SC.res) && SC.res.length) {
+        const okN = SC.res.filter((x) => !x.reject && x.score >= SC.min).length;
+        if (okN > 0) {
+          lines.push({ level: 'ok', text: `اسکنر: ${fa(okN)} سیگنال معتبر فعال دارد.` });
+        } else {
+          const cnt = {};
+          SC.res.forEach((x) => { const k = x.reject || 'امتیاز کمتر از حد نصاب'; cnt[k] = (cnt[k] || 0) + 1; });
+          const top = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} (${fa(v)} ارز)`).join(' · ');
+          lines.push({ level: 'warn', text: 'اسکنر بدون سیگنال: ' + top });
+        }
+      }
+    }
+  } catch (_) {}
+
+  // خلاصه علت نبود سیگنال در اسکالپ
+  try {
+    if (typeof SA !== 'undefined' && SA && SA.c) {
+      const vals = Object.values(SA.c).map((x) => x.res).filter((r) => r && r.gate && r.gate.length);
+      if (vals.length) {
+        const okN = vals.filter((r) => r.ok).length;
+        if (okN > 0) lines.push({ level: 'ok', text: `اسکالپ: ${fa(okN)} سیگنال فعال دارد.` });
+        else {
+          const cnt = {};
+          vals.forEach((r) => {
+            const bad = r.gate.find((g) => !g.ok);
+            const k = bad ? bad.name.split('(')[0].trim() : (r.why || 'قدرت کم');
+            cnt[k] = (cnt[k] || 0) + 1;
+          });
+          const top = Object.entries(cnt).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k, v]) => `${k} (${fa(v)} ارز)`).join(' · ');
+          lines.push({ level: 'warn', text: 'اسکالپ بدون سیگنال: ' + top });
+        }
+      }
+    }
+  } catch (_) {}
+
+  // خلاصه موتور خودکار کوانت
+  if (qResults.length) {
+    const act = qResults.filter((x) => x.res.signal !== 'NO_TRADE');
+    if (act.length) {
+      lines.push({ level: 'ok', text: `کوانت خودکار: ${fa(act.length)} سیگنال فعال (${act.map((x) => x.sym.replace('USDT', '')).join('، ')}).` });
+    } else {
+      const top = [...qResults].sort((a, b) => (b.res.confidenceScore || 0) - (a.res.confidenceScore || 0))[0];
+      const why = top?.res?.reasonsAgainst?.[0] || 'شرایط کامل نیست';
+      lines.push({ level: 'warn', text: `کوانت آماده‌باش (نزدیک‌ترین: ${top.sym.replace('USDT', '')} با امتیاز ${fa(Math.round(top.res.confidenceScore || 0))}) — ${why}` });
+    }
+  }
+
+  // خطای منابع داده
+  try {
+    if (typeof FEED !== 'undefined' && FEED) {
+      const badFeeds = Object.entries(FEED).filter(([, v]) => v && v.ok === false).map(([h]) => h);
+      if (badFeeds.length) lines.push({ level: 'err', text: 'خطای دریافت داده از: ' + badFeeds.join('، ') });
+    }
+  } catch (_) {}
+
+  const bootErr = $('boot-err')?.textContent?.trim();
+  if (bootErr) lines.push({ level: 'err', text: 'خطای اسکریپت: ' + bootErr });
+
+  return { ses, lines };
+}
+
+function renderEventLogCard() {
+  const sumEl = $('evLiveSummary'), listEl = $('evLogList'), badge = $('evLogChip');
+  if (!sumEl || !listEl) return;
+
+  const { ses, lines } = collectNoSignalReasons();
+  const errCount = evLogs.filter((x) => x.level === 'err' && Date.now() - x.t < 3600e3).length;
+  if (badge) {
+    badge.className = 'chip ' + (errCount > 0 ? 'down' : ses.cls);
+    badge.textContent = errCount > 0 ? `🔴 ${fa(errCount)} خطا · ${ses.chip}` : ses.chip;
+  }
+
+  sumEl.innerHTML = lines.map((l) => {
+    const ic = l.level === 'err' ? '🔴' : l.level === 'warn' ? '🟡' : '🟢';
+    const cl = l.level === 'err' ? 'down' : l.level === 'warn' ? 'chk w' : 'chk g';
+    return `<div class="${cl}" style="font-size:12px;line-height:1.8">${ic} ${l.text}</div>`;
+  }).join('');
+
+  if (!evLogs.length) {
+    listEl.innerHTML = '<div class="sub">هنوز رویداد یا خطایی ثبت نشده است.</div>';
+    return;
+  }
+  listEl.innerHTML = evLogs.slice(0, 35).map((e) => {
+    const ic = e.level === 'err' ? '🔴' : e.level === 'warn' ? '🟡' : '🟢';
+    return `<div style="border-bottom:1px dashed var(--line);padding:6px 0;font-size:12px;line-height:1.7">
+      <div style="display:flex;justify-content:space-between;gap:8px"><b>${ic} ${e.title}</b><span class="sub" style="margin:0">${fmtTime(e.t)}</span></div>
+      ${e.detail ? `<div style="color:var(--mute);margin-top:2px;word-break:break-word">${e.detail}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function mountEventLogCard() {
+  const dash = $('tp-dash');
+  if (!dash || $('evLogCard')) return;
+  const c = document.createElement('div');
+  c.className = 'card';
+  c.id = 'evLogCard';
+  c.style.marginBottom = '12px';
+  c.innerHTML = `
+    <div class="ph"><h3>📋 مرکز رویدادها، علت نبود سیگنال و لاگ خطا</h3><span id="evLogChip" class="chip">در حال بررسی...</span></div>
+    <div style="padding:8px 10px;border-radius:10px;background:rgba(0,0,0,.22);border:1px solid var(--line);margin-bottom:8px">
+      <div class="sub" style="margin:0 0 4px">وضعیت زندهٔ همین لحظه:</div>
+      <div id="evLiveSummary"></div>
+    </div>
+    <div class="btnrow" style="margin:6px 0 8px">
+      <button type="button" id="evRefBtn" class="btnx">به‌روزرسانی</button>
+      <button type="button" id="evCopyBtn" class="btnx">کپی لاگ</button>
+      <button type="button" id="evClrBtn" class="btnx warn">پاک کردن</button>
+    </div>
+    <div id="evLogList" style="max-height:260px;overflow-y:auto"></div>
+  `;
+  dash.prepend(c);
+
+  $('evRefBtn').addEventListener('click', () => { auditSystemEvents(); renderEventLogCard(); });
+  $('evClrBtn').addEventListener('click', () => { evLogs = []; evRecentMap.clear(); try { localStorage.removeItem(EV_KEY); } catch (_) {} renderEventLogCard(); });
+  $('evCopyBtn').addEventListener('click', async () => {
+    const { lines } = collectNoSignalReasons();
+    const txt = '=== وضعیت زنده ===\n' + lines.map((l) => '- ' + l.text).join('\n') +
+      '\n\n=== لاگ رویدادها ===\n' + evLogs.slice(0, 25).map((e) => `[${fmtTime(e.t)}] (${e.level}) ${e.title}: ${e.detail}`).join('\n');
+    try { await navigator.clipboard.writeText(txt); alert('لاگ در کلیپ‌بورد کپی شد.'); } catch (_) { prompt('متن لاگ را کپی کن:', txt); }
+  });
+
+  // شنود خودکار خطاهای جاوااسکریپت و درخواست‌های ناموفق
+  window.addEventListener('error', (e) => {
+    pushSysEvent('err', 'خطای جاوااسکریپت', `${e.message || 'Unknown'} @خط ${e.lineno || '?'}`);
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = e?.reason?.message || String(e?.reason || 'خطای نامشخص');
+    pushSysEvent('err', 'خطای ناهمزمان (Promise)', msg);
+  });
+
+  auditSystemEvents();
+  renderEventLogCard();
+  setInterval(() => { if (!document.hidden) { auditSystemEvents(); renderEventLogCard(); } }, 30000);
+}
+
+function auditSystemEvents() {
+  const { ses, lines } = collectNoSignalReasons();
+  if (ses.cls === 'w' || ses.cls === 'down') pushSysEvent(ses.cls === 'down' ? 'err' : 'warn', ses.chip, ses.text);
+  lines.filter((l) => l.level === 'err').forEach((l) => pushSysEvent('err', 'هشدار فنی / محدودیت', l.text));
+}
+
+/* ---------- ۴. کشویی کردن تمام کادرهای تب «پنل» (Accordion) ---------- */
+function initDashAccordion() {
+  const dash = $('tp-dash');
+  if (!dash) return;
+
+  if (!$('dashAccCss')) {
+    const st = document.createElement('style');
+    st.id = 'dashAccCss';
+    st.textContent = `
+      .dash-acc-bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;padding:6px 10px;border-radius:10px;background:rgba(15,23,42,.55);border:1px solid var(--line);font-size:12px;color:var(--mute)}
+      .dash-acc-bar .btnx{padding:4px 10px;font-size:11.5px}
+      #tp-dash .card.dash-fold{padding:11px 13px;margin-bottom:9px!important}
+      #tp-dash .card.dash-fold>.dash-hd{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;user-select:none;margin:0!important;min-height:28px;touch-action:manipulation}
+      #tp-dash .card.dash-fold.acc-open>.dash-hd{margin-bottom:10px!important;padding-bottom:8px;border-bottom:1px dashed var(--line)}
+      #tp-dash .card.dash-fold>.dash-bd{display:none}
+      #tp-dash .card.dash-fold.acc-open>.dash-bd{display:block}
+      .dash-chev{font-size:14px;color:var(--mute);transition:transform .2s ease;flex:none;margin-inline-start:4px}
+      #tp-dash .card.dash-fold.acc-open>.dash-hd .dash-chev{transform:rotate(180deg);color:var(--accent)}
+      #tp-dash details.card{padding:11px 13px;margin-bottom:9px!important}
+      #tp-dash details.card>summary{cursor:pointer;font-weight:800;font-size:13.5px;list-style:none;display:flex;justify-content:space-between;align-items:center}
+      #tp-dash details.card>summary::after{content:'▾';font-size:14px;color:var(--mute);transition:transform .2s}
+      #tp-dash details.card[open]>summary::after{transform:rotate(180deg);color:var(--accent)}
+    `;
+    document.head.appendChild(st);
+  }
+
+  if (!$('dashAccBar')) {
+    const bar = document.createElement('div');
+    bar.id = 'dashAccBar';
+    bar.className = 'dash-acc-bar';
+    bar.innerHTML = `<span>کادرهای پنل (کشویی)</span><div style="display:flex;gap:6px"><button type="button" id="dashOpenAll" class="btnx">باز کردن همه</button><button type="button" id="dashCloseAll" class="btnx">بستن همه</button></div>`;
+    dash.prepend(bar);
+    $('dashOpenAll').addEventListener('click', () => {
+      dash.querySelectorAll(':scope > .card.dash-fold').forEach((x) => x.classList.add('acc-open'));
+      dash.querySelectorAll(':scope > details.card').forEach((x) => { x.open = true; });
+    });
+    $('dashCloseAll').addEventListener('click', () => {
+      dash.querySelectorAll(':scope > .card.dash-fold').forEach((x) => x.classList.remove('acc-open'));
+      dash.querySelectorAll(':scope > details.card').forEach((x) => { x.open = false; });
+    });
+  }
+
+  function guessCardTitle(card) {
+    const t = card.textContent || '';
+    if (t.includes('فونت') || t.includes('اندازه') || t.includes('فیروزه‌ای')) return '🎨 ظاهر، رنگ و فونت';
+    if (t.includes('تاریخچه هشدار')) return '🕒 تاریخچه هشدارها';
+    if (t.includes('تلگرام')) return '🔔 هشدار تلگرام';
+    if (t.includes('حساب') || t.includes('ورود مدیر')) return '👤 حساب و اشتراک';
+    if (t.includes('ارز')) return '🪙 انتخاب ارزها';
+    if (t.includes('وضعیت سیستم')) return '🩺 وضعیت سیستم';
+    return '📦 بخش تنظیمات';
+  }
+
+  function wrapCard(card) {
+    if (!card || card.id === 'dashAccBar' || card.tagName === 'DETAILS') return;
+    if (!card.children.length) return;
+    if (card.children.length === 1 && card.firstElementChild?.tagName === 'DETAILS') return;
+    if (card.querySelector(':scope > .dash-bd')) return;
+
+    let hd = card.querySelector(':scope > .ph');
+    if (!hd) {
+      const h = card.querySelector(':scope > h2, :scope > h3, :scope > .lbl');
+      hd = document.createElement('div');
+      hd.className = 'ph';
+      if (h) {
+        hd.appendChild(h);
+      } else {
+        const h3 = document.createElement('h3');
+        h3.textContent = guessCardTitle(card);
+        hd.appendChild(h3);
+      }
+      card.prepend(hd);
+    }
+
+    hd.classList.add('dash-hd');
+    if (!hd.querySelector('.dash-chev')) {
+      const ch = document.createElement('span');
+      ch.className = 'dash-chev';
+      ch.textContent = '▾';
+      hd.appendChild(ch);
+    }
+
+    const bd = document.createElement('div');
+    bd.className = 'dash-bd';
+    const kids = [...card.childNodes].filter((n) => n !== hd);
+    kids.forEach((n) => bd.appendChild(n));
+    card.appendChild(bd);
+    card.classList.add('dash-fold');
+
+    if (!hd.dataset.accBound) {
+      hd.dataset.accBound = '1';
+      hd.addEventListener('click', (e) => {
+        if (e.target.closest('button,input,select,a,label')) return;
+        card.classList.toggle('acc-open');
+      });
+    }
+  }
+
+  let obsTm = null;
+  const scanAll = () => {
+    dash.querySelectorAll(':scope > .card').forEach(wrapCard);
+    const bar = $('dashAccBar'), ev = $('evLogCard');
+    if (bar && dash.firstElementChild !== bar) dash.prepend(bar);
+    if (bar && ev && bar.nextElementSibling !== ev) bar.after(ev);
+  };
+
+  scanAll();
+  const obs = new MutationObserver(() => {
+    clearTimeout(obsTm);
+    obsTm = setTimeout(scanAll, 120);
+  });
+  obs.observe(dash, { childList: true, subtree: true });
+}
+
 window.addEventListener('DOMContentLoaded', () => {
   mountQuantCard();
   mountEngineDashboard();
+  mountEventLogCard();
+  initDashAccordion();
   syncCloudModel();
   setInterval(syncCloudModel, 300000);
 });
